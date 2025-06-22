@@ -10,8 +10,8 @@ function M.start(kernel_name)
 		return
 	end
 
-	local kernel_config = vim.g.jupytex_kernels[kernel_name] or {}
-	local cmd = kernel_config.cmd or "jupyter-kernel --kernel=" .. kernel_name
+	local kernel_config = vim.g.am_i_neokernel_kernels[kernel_name] or {}
+	local cmd = kernel_config.cmd or "jupyter-kernel --kernel=" .. kernel_name -- Considera di rendere "jupyter-kernel" configurabile
 	local connection_file = vim.fn.tempname() .. ".json"
 	cmd = string.gsub(cmd, "{connection_file}", connection_file)
 
@@ -90,20 +90,31 @@ function M.connect_to_kernel(kernel_name)
 	)
 end
 
-function M.execute_cell(kernel_name, cell_content)
+-- Modificato per accettare bufnr e row per il posizionamento dell'output
+function M.execute_cell(kernel_name, cell_content, bufnr, row)
 	local kernel_info = kernels[kernel_name]
 	if not kernel_info then
 		vim.notify("Kernel '" .. kernel_name .. "' is not running.", vim.log.levels.WARN)
 		return
 	end
 
-	local msg = require("jupytex.message").create_execute_request(cell_content)
+    if kernel_info.status ~= "idle" then
+        vim.notify("Kernel '" .. kernel_name .. "' is not idle (status: " .. kernel_info.status .. "). Attendere.", vim.log.levels.WARN)
+        return
+    end
+
+	local msg = require("am_i_neokernel.message").create_execute_request(cell_content)
+	-- Store bufnr and row in kernel_info so handle_iopub_message can access them
+	kernel_info.current_execution_bufnr = bufnr
+	kernel_info.current_execution_row = row
+
 	local success, err = kernel_info.shell_socket:send(vim.json.encode(msg))
 	if not success then
 		vim.notify("Error sending execute request: " .. err, vim.log.levels.ERROR)
+        kernel_info.current_execution_bufnr = nil -- Clear on error
+        kernel_info.current_execution_row = nil
 	end
-	kernel_info.bufnr = vim.api.nvim_get_current_buf()
-	kernel_info.row = vim.api.nvim_win_get_cursor(0)[1] - 1
+	-- Non impostare bufnr e row qui, ma usa quelli passati e memorizzati
 end
 
 function M.handle_iopub_message(kernel_name)
@@ -121,16 +132,27 @@ function M.handle_iopub_message(kernel_name)
 	-- print("IOPUB", vim.inspect(decoded_msg)) -- Keep this for debugging
 
 	local msg_type = decoded_msg.header.msg_type
-	local bufnr = kernel_info.bufnr
-	local row = kernel_info.row
+	-- Usa bufnr e row dall'esecuzione corrente, non valori globali del kernel_info
+	local bufnr = kernel_info.current_execution_bufnr
+	local row = kernel_info.current_execution_row
+
+    if not bufnr or not row then
+        -- Potrebbe essere un messaggio non sollecitato o un problema, per ora lo ignoriamo se non abbiamo contesto
+        -- vim.notify("IOPUB: Received message without execution context: " .. msg_type, vim.log.levels.DEBUG)
+        return
+    end
 
 	if msg_type == "stream" then
-		require("jupytex.output").render_stream(bufnr, row, decoded_msg)
+		require("am_i_neokernel.output").render_stream(bufnr, row, decoded_msg)
 	elseif msg_type == "execute_result" then
-		require("jupytex.output").render_execute_result(bufnr, row, decoded_msg)
+		require("am_i_neokernel.output").render_execute_result(bufnr, row, decoded_msg)
 	elseif msg_type == "error" then
-		require("jupytex.output").render_error(bufnr, row, decoded_msg)
-	end
+		require("am_i_neokernel.output").render_error(bufnr, row, decoded_msg)
+	elseif msg_type == "status" and decoded_msg.content.execution_state == "idle" then
+        -- Potremmo voler resettare current_execution_bufnr/row qui se l'esecuzione è considerata conclusa
+        -- kernel_info.current_execution_bufnr = nil
+        -- kernel_info.current_execution_row = nil
+    end
 end
 
 return M

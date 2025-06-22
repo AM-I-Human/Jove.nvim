@@ -1,7 +1,7 @@
 -- output.lua
 local M = {}
 
-local output_ns = vim.api.nvim_create_namespace("jupytex_output")
+local output_ns = vim.api.nvim_create_namespace("am_i_neokernel_output")
 
 local function get_cell_end_row(bufnr, cell_start_row)
 	-- VERY basic cell end detection.  We'll improve this later.

@@ -1,0 +1,104 @@
+*am_i_neokernel.txt* Plugin Neovim per un REPL Python interattivo.
+
+==============================================================================
+INDICE                                                  *am_i_neokernel-contents*
+
+1. Introduzione                                         |am_i_neokernel-intro|
+2. Requisiti                                            |am_i_neokernel-requirements|
+3. Installazione                                        |am_i_neokernel-installation|
+4. Configurazione                                       |am_i_neokernel-configuration|
+5. Comandi                                              |am_i_neokernel-commands|
+6. Mappature Esempio                                    |am_i_neokernel-mappings|
+
+==============================================================================
+1. Introduzione                                         *am_i_neokernel-intro*
+
+am_i_neokernel è un plugin Neovim che mira a fornire un ambiente REPL
+interattivo per Python, con l'obiettivo futuro di supportare la visualizzazione
+di dataframe Pandas e plot direttamente nel buffer di Neovim.
+
+L'MVP attuale consente di:
+- Avviare un kernel Jupyter Python.
+- Eseguire la riga corrente o una selezione visiva di codice Python.
+- Visualizzare l'output (stdout, risultati di espressioni, errori) come testo
+  virtuale sotto il codice eseguito.
+
+==============================================================================
+2. Requisiti                                            *am_i_neokernel-requirements*
+
+- Neovim 0.7 o superiore.
+- Python installato e disponibile nel PATH.
+- `ipykernel` installato (`pip install ipykernel`).
+- `lzmq` (binding Lua per ZeroMQ) installato e disponibile nel runtimepath di Neovim.
+  (Es. tramite un gestore di plugin come `tami5/lzmq.nvim`).
+
+==============================================================================
+3. Installazione                                        *am_i_neokernel-installation*
+
+1. Clona il repository o sposta la cartella del plugin nella tua directory
+   `pack` di Neovim.
+   Esempio per Linux/macOS:
+   >
+   mkdir -p ~/.config/nvim/pack/myplugins/start
+   ln -s /path/to/your/am_i_neokernel ~/.config/nvim/pack/myplugins/start/am_i_neokernel
+   <
+
+   Sostituisci `/path/to/your/am_i_neokernel` con il percorso effettivo del
+   tuo plugin.
+
+2. Assicurati che `lzmq` sia installato e caricato dal tuo gestore di plugin
+   (se ne usi uno) o sia disponibile nel tuo runtimepath.
+
+==============================================================================
+4. Configurazione                                       *am_i_neokernel-configuration*
+
+Aggiungi la seguente configurazione al tuo `init.lua`:
+>lua
+vim.g.am_i_neokernel_kernels = {
+    python = {
+        cmd = "python -m ipykernel_launcher -f {connection_file}",
+        -- Puoi aggiungere altre configurazioni qui, es. display_name
+    },
+    -- Aggiungi altri kernel se necessario
+}
+
+-- Carica i comandi del plugin
+require("am_i_neokernel.commands")
+<
+
+==============================================================================
+5. Comandi                                              *am_i_neokernel-commands*
+
+*:AmINeoKernelStart* {kernel_name}
+    Avvia un kernel Jupyter specificato dal nome.
+    {kernel_name} deve corrispondere a una chiave definita in
+    `vim.g.am_i_neokernel_kernels`.
+    Esempio: >
+        :AmINeoKernelStart python
+    <
+
+*:AmINeoKernelExecute*
+    Esegue la riga corrente o la selezione visiva nel kernel attivo.
+    Se non c'è una selezione visiva, esegue la riga su cui si trova il cursore.
+    Richiede che un kernel sia già stato avviato e sia in stato "idle".
+    Esempio (in modalità normale): >
+        :AmINeoKernelExecute
+    <
+    Esempio (dopo aver selezionato del testo in modalità visiva): >
+        :'<,'>AmINeoKernelExecute
+    <
+
+==============================================================================
+6. Mappature Esempio                                    *am_i_neokernel-mappings*
+
+Puoi aggiungere queste mappature al tuo `init.lua` per un uso più comodo:
+>lua
+-- Esempio di mappatura in modalità normale per eseguire la riga corrente
+vim.api.nvim_set_keymap('n', '<Leader>ee', ':AmINeoKernelExecute<CR>', { noremap = true, silent = true, desc = "Esegui riga corrente" })
+
+-- Esempio di mappatura in modalità visiva per eseguire la selezione
+vim.api.nvim_set_keymap('x', '<Leader>ee', ':AmINeoKernelExecute<CR>', { noremap = true, silent = true, desc = "Esegui selezione" })
+<
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:

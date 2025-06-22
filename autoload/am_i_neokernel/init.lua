@@ -13,7 +13,6 @@ vim.g.am_i_neokernel_kernels = {
 
 -- Carica i comandi utente definiti per il plugin.
 -- Questi comandi sono ora definiti in lua/am_i_neokernel/commands.lua
-require("am_i_neokernel.commands")
 
 -- Nota: I vecchi comandi JupyterStart e JupyterExecute sono stati rimossi da qui
 -- e spostati in lua/am_i_neokernel/commands.lua con i nomi AmINeoKernelStart e AmINeoKernelExecute.

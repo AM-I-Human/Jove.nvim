@@ -26,18 +26,20 @@ L'MVP attuale consente di:
 ==============================================================================
 2. Requisiti                                            *am_i_neokernel-requirements*
 
-- Neovim 0.7 o superiore.
-- Python installato e disponibile nel PATH.
-- `ipykernel` installato (`pip install ipykernel`).
-- `lzmq` (binding Lua per ZeroMQ) installato e disponibile nel runtimepath di Neovim.
-  (Es. tramite un gestore di plugin come `tami5/lzmq.nvim`).
+- Neovim 0.7 o superiore (consigliato 0.8+ per una migliore gestione dei job).
+- Python 3.x installato e disponibile nel PATH (il comando `python` o `python3` deve funzionare).
+- `ipykernel` installato nell'ambiente Python (`pip install ipykernel`).
+- `pyzmq` installato nell'ambiente Python (`pip install pyzmq`).
+
+Il plugin ora utilizza uno script Python helper che si occupa della comunicazione
+ZeroMQ con il kernel Jupyter.
 
 ==============================================================================
 3. Installazione                                        *am_i_neokernel-installation*
 
 1. Clona il repository o sposta la cartella del plugin nella tua directory
-   `pack` di Neovim.
-   Esempio per Linux/macOS:
+   `pack` di Neovim o usa il tuo gestore di plugin preferito.
+   Esempio per Linux/macOS con gestione manuale:
    >
    mkdir -p ~/.config/nvim/pack/myplugins/start
    ln -s /path/to/your/am_i_neokernel ~/.config/nvim/pack/myplugins/start/am_i_neokernel
@@ -46,8 +48,13 @@ L'MVP attuale consente di:
    Sostituisci `/path/to/your/am_i_neokernel` con il percorso effettivo del
    tuo plugin.
 
-2. Assicurati che `lzmq` sia installato e caricato dal tuo gestore di plugin
-   (se ne usi uno) o sia disponibile nel tuo runtimepath.
+2. Assicurati che `ipykernel` e `pyzmq` siano installati nell'ambiente Python
+   che intendi utilizzare. Puoi installarli con pip:
+   >
+   pip install ipykernel pyzmq
+   <
+   Oppure, se usi ambienti virtuali, assicurati che siano installati
+   nell'ambiente attivo quando Neovim avvia il kernel.
 
 ==============================================================================
 4. Configurazione                                       *am_i_neokernel-configuration*

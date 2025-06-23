@@ -24,10 +24,15 @@ function M.start(kernel_name)
 
 	-- Avvia il processo ipykernel (es. python -m ipykernel_launcher ...)
 	local ipykernel_job_id = vim.fn.jobstart(ipykernel_cmd, {
-		-- Non gestiamo stdout/stderr di ipykernel qui direttamente per ora,
-		-- ma potrebbero essere utili per il debug.
+		on_stdout = function(_, data, _)
+			if data then
+				vim.notify("ipykernel stdout (" .. kernel_name .. "): " .. table.concat(data, "\n"), vim.log.levels.INFO)
+			end
+		end,
 		on_stderr = function(_, data, _)
-			vim.notify("ipykernel stderr (" .. kernel_name .. "): " .. table.concat(data, "\n"), vim.log.levels.WARN)
+			if data then
+				vim.notify("ipykernel stderr (" .. kernel_name .. "): " .. table.concat(data, "\n"), vim.log.levels.WARN)
+			end
 		end,
 		on_exit = function(_, exit_code, _)
 			vim.notify("Processo ipykernel per '" .. kernel_name .. "' terminato con codice: " .. exit_code, vim.log.levels.INFO)

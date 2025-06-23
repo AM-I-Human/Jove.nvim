@@ -62,7 +62,7 @@ function M.start(kernel_name)
 			vim.fn.jobstop(ipykernel_job_id) -- Ferma il processo ipykernel se non possiamo connetterci
 			kernels[kernel_name] = nil
 		end
-	end, 1500) -- Aumentato il delay per dare tempo a ipykernel di scrivere il file
+	end, 3000) -- Aumentato ulteriormente il delay a 3 secondi
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
@@ -86,11 +86,21 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 
 	-- Comando per avviare lo script Python. Assicurati che 'python' sia nel PATH.
 	-- Potrebbe essere necessario renderlo configurabile (python, python3, etc.)
-	local python_executable = kernel_name == "python" and (vim.g.am_i_neokernel_kernels.python.python_executable or "python") or "python"
+	local python_executable = "python" -- Default
+    if vim.g.am_i_neokernel_kernels and
+       vim.g.am_i_neokernel_kernels[kernel_name] and
+       vim.g.am_i_neokernel_kernels[kernel_name].python_executable then
+        python_executable = vim.g.am_i_neokernel_kernels[kernel_name].python_executable
+    elseif vim.g.am_i_neokernel_kernels and
+           vim.g.am_i_neokernel_kernels.python and -- fallback al kernel 'python' globale se esiste
+           vim.g.am_i_neokernel_kernels.python.python_executable then
+        python_executable = vim.g.am_i_neokernel_kernels.python.python_executable
+    end
+    vim.notify("Eseguibile Python per il client: " .. python_executable, vim.log.levels.INFO)
 
 	local py_client_cmd = { python_executable, py_client_script, connection_file_path }
 
-	vim.notify("Avvio del client Python: " .. table.concat(py_client_cmd, " "), vim.log.levels.INFO)
+	vim.notify("Comando avvio client Python: " .. table.concat(py_client_cmd, " "), vim.log.levels.INFO)
 
 	kernels[kernel_name] = {
 		status = "starting_py_client",
@@ -180,7 +190,7 @@ function M.parse_connection_file(filename)
 	if ok then
 		return result
 	else
-		vim.notify("Impossibile decodificare il file di connessione: " .. filename .. "\nErrore: " .. result, vim.log.levels.ERROR)
+		vim.notify("Impossibile decodificare JSON dal file di connessione: " .. filename .. "\nErrore: " .. result .. "\nContenuto grezzo: " .. content, vim.log.levels.ERROR)
 		return nil
 	end
 end

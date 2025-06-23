@@ -61,6 +61,11 @@ ZeroMQ con il kernel Jupyter.
 
 Aggiungi la seguente configurazione al tuo `init.lua`:
 >lua
+-- Carica il plugin. Questo imposterà le variabili necessarie e i comandi.
+require("am_i_neokernel")
+
+-- (Opzionale) Personalizza la configurazione dei kernel.
+-- Questo deve essere fatto DOPO aver caricato il plugin se vuoi sovrascrivere i default.
 vim.g.am_i_neokernel_kernels = {
     python = {
         cmd = "python -m ipykernel_launcher -f {connection_file}",
@@ -68,10 +73,9 @@ vim.g.am_i_neokernel_kernels = {
     },
     -- Aggiungi altri kernel se necessario
 }
-
--- Carica i comandi del plugin
-require("am_i_neokernel.commands")
 <
+L'istruzione `require("am_i_neokernel")` è sufficiente per caricare il plugin
+con la sua configurazione di default e rendere disponibili tutti i comandi.
 
 ==============================================================================
 5. Comandi                                              *am_i_neokernel-commands*

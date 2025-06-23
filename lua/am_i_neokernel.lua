@@ -33,7 +33,6 @@ if vim.g.am_i_neokernel_kernels == nil then
     -- vim.notify("[AmINeoKernel] Configurazione kernel di default impostata.", vim.log.levels.INFO)
 end
 
--- Eventuali altre inizializzazioni del plugin possono andare qui.
--- Ad esempio, caricare i comandi se non si vuole che l'utente lo faccia esplicitamente.
--- Tuttavia, per ora, lasciamo che l'utente carichi i comandi come da documentazione.
--- require("am_i_neokernel.commands") -- Scommentare se si vuole caricare automaticamente
+-- 3. Carica i comandi del plugin per renderli disponibili.
+-- Questo semplifica la configurazione per l'utente, che dovrà solo fare `require('am_i_neokernel')`.
+require("am_i_neokernel.commands")

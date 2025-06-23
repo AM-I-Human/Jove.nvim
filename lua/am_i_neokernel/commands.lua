@@ -95,4 +95,25 @@ vim.api.nvim_create_user_command(
     }
 )
 
+function M.list_kernels_cmd()
+    local kernel_list = kernel.list_running_kernels()
+    if #kernel_list == 0 then
+        vim.notify("Nessun kernel attualmente in esecuzione o gestito.", vim.log.levels.INFO)
+    else
+        vim.notify("Kernel gestiti:", vim.log.levels.INFO)
+        for _, status_line in ipairs(kernel_list) do
+            vim.api.nvim_echo({ {status_line, "Normal"} }, false, {})
+        end
+    end
+end
+
+vim.api.nvim_create_user_command(
+    "AmINeoKernelList",
+    M.list_kernels_cmd,
+    {
+        nargs = 0,
+        desc = "Elenca i kernel attualmente gestiti e il loro stato.",
+    }
+)
+
 return M

@@ -66,10 +66,10 @@ function M.start(kernel_name)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
-	-- vim.notify("[Debug] M.start_python_client chiamato. vim.g.am_i_neokernel_plugin_root = " .. vim.inspect(vim.g.am_i_neokernel_plugin_root), vim.log.levels.INFO)
+	vim.notify("[DebugKernel] M.start_python_client: Inizio. Valore di vim.g.am_i_neokernel_plugin_root = '" .. vim.inspect(vim.g.am_i_neokernel_plugin_root) .. "'", vim.log.levels.INFO)
 
 	if not vim.g.am_i_neokernel_plugin_root or vim.g.am_i_neokernel_plugin_root == "" then
-		vim.notify("Percorso radice del plugin (vim.g.am_i_neokernel_plugin_root) non impostato o vuoto.", vim.log.levels.ERROR)
+		vim.notify("ERRORE KERNEL: Percorso radice del plugin (vim.g.am_i_neokernel_plugin_root) non impostato o vuoto. Impossibile avviare py_kernel_client.py.", vim.log.levels.ERROR)
 		vim.fn.jobstop(ipykernel_job_id_ref)
 		kernels[kernel_name] = nil
 		return
@@ -307,6 +307,23 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 		payload = jupyter_msg_payload,
 	})
 	vim.notify("Richiesta di esecuzione inviata al client Python per '" .. kernel_name .. "'.", vim.log.levels.INFO)
+end
+
+function M.list_running_kernels()
+    local running = {}
+    if next(kernels) == nil then
+        return {"Nessun kernel gestito al momento."}
+    end
+    for name, info in pairs(kernels) do
+        local status_line = string.format("Kernel: %s, Stato: %s, IPYKernel Job ID: %s, PyClient Job ID: %s",
+            name,
+            info.status or "sconosciuto",
+            info.ipykernel_job_id or "N/A",
+            info.py_client_job_id or "N/A"
+        )
+        table.insert(running, status_line)
+    end
+    return running
 end
 
 return M

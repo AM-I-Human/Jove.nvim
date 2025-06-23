@@ -95,6 +95,13 @@ require("am_i_neokernel.commands")
         :'<,'>AmINeoKernelExecute
     <
 
+*:AmINeoKernelList*
+    Elenca tutti i kernel che sono stati avviati tramite AmINeoKernelStart
+    e il loro stato attuale (es. idle, busy, connecting_py_client, disconnected).
+    Esempio: >
+        :AmINeoKernelList
+    <
+
 ==============================================================================
 6. Mappature Esempio                                    *am_i_neokernel-mappings*
 

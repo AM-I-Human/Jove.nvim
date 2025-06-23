@@ -66,15 +66,21 @@ function M.start(kernel_name)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
-	if not vim.g.am_i_neokernel_plugin_root then
-		vim.notify("Percorso radice del plugin non trovato (vim.g.am_i_neokernel_plugin_root).", vim.log.levels.ERROR)
+	-- vim.notify("[Debug] M.start_python_client chiamato. vim.g.am_i_neokernel_plugin_root = " .. vim.inspect(vim.g.am_i_neokernel_plugin_root), vim.log.levels.INFO)
+
+	if not vim.g.am_i_neokernel_plugin_root or vim.g.am_i_neokernel_plugin_root == "" then
+		vim.notify("Percorso radice del plugin (vim.g.am_i_neokernel_plugin_root) non impostato o vuoto.", vim.log.levels.ERROR)
+		vim.fn.jobstop(ipykernel_job_id_ref)
+		kernels[kernel_name] = nil
 		return
 	end
 
 	local py_client_script = vim.g.am_i_neokernel_plugin_root .. "/python/py_kernel_client.py"
 	-- Assicurati che lo script esista
 	if vim.fn.filereadable(py_client_script) == 0 then
-		vim.notify("Script Python client non trovato o non leggibile: " .. py_client_script, vim.log.levels.ERROR)
+		vim.notify("Script Python client non trovato o non leggibile: " .. py_client_script .. " (Plugin root: " .. vim.g.am_i_neokernel_plugin_root .. ")", vim.log.levels.ERROR)
+		vim.fn.jobstop(ipykernel_job_id_ref)
+		kernels[kernel_name] = nil
 		return
 	end
 

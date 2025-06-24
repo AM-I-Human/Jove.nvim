@@ -136,7 +136,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	end
 	vim.notify("Eseguibile Python per il client: " .. python_executable, vim.log.levels.INFO)
 
-	local py_client_cmd = { python_executable, py_client_script, connection_file_path }
+	local py_client_cmd = { python_executable, "-u", py_client_script, connection_file_path }
 
 	vim.notify("Comando avvio client Python: " .. table.concat(py_client_cmd, " "), vim.log.levels.INFO)
 
@@ -150,6 +150,8 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	}
 
 	local py_job_id = vim.fn.jobstart(py_client_cmd, {
+
+		stdin = "pipe", -- <<< TRY ADDING THIS LINE
 		rpc = false, -- Stiamo usando stdio per JSON, non RPC di Neovim
 		pty = false, -- Non necessario per stdio
 		on_stdout = function(job_id, data, event)
@@ -258,6 +260,12 @@ function M.send_to_py_client(kernel_name, data_table)
 
 	local json_data = vim.json.encode(data_table)
 	-- vim.notify("Invio a PyClient ("..kernel_name.."): " .. json_data, vim.log.levels.DEBUG)
+	--
+	--
+	--    -- >>>>>>>> ADD THIS DEBUG LINE <<<<<<<<<<
+	local payload_to_send = json_data .. "\n"
+	vim.notify("[LUA DEBUG] Sending to stdin: " .. vim.inspect(payload_to_send), vim.log.levels.WARN)
+	-- >>>>>>>> END OF ADDED DEBUG LINE <<<<<<<<<<
 	vim.fn.jobsend(kernel_info.py_client_job_id, json_data .. "\n") -- Aggiungi newline come delimitatore
 end
 

@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import os
+from jupyter_client.session import Session
 
 # Configurazione del logging (semplice, per debug)
 LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "am_i_neokernel_py_client.log")
@@ -25,15 +26,18 @@ class KernelClient:
         self.iopub_socket = None
         self.poller = zmq.Poller()
         self.stop_event = threading.Event()
-        self.iopub_thread = None
+        self.kernel_listener_thread = None  # <<< CHANGE: Renamed for clarity
+
         self.kernel_info = self._read_connection_file()
         if not self.kernel_info:
             log_message("Failed to read or parse connection file.")
-            # Invia un messaggio di errore a Lua e esci o gestisci
             self.send_to_lua(
                 {"type": "error", "message": "Failed to read connection file"}
             )
             sys.exit(1)
+
+        self.session = Session(key=self.kernel_info["key"].encode("utf-8"))
+
         self._connect_sockets()
 
     def _read_connection_file(self):
@@ -52,9 +56,7 @@ class KernelClient:
 
         log_message(f"Connecting to kernel at {ip} using {transport}")
 
-        self.shell_socket = self.context.socket(
-            zmq.DEALER
-        )  # o REQ, ma DEALER è più flessibile per asincrono
+        self.shell_socket = self.context.socket(zmq.DEALER)
         self.shell_socket.connect(
             f"{transport}://{ip}:{self.kernel_info['shell_port']}"
         )
@@ -71,166 +73,95 @@ class KernelClient:
             f"IOPub socket connected and subscribed to {transport}://{ip}:{self.kernel_info['iopub_port']}"
         )
 
+        # <<< CHANGE: The poller is already set up for both, which is perfect!
         self.poller.register(self.shell_socket, zmq.POLLIN)
         self.poller.register(self.iopub_socket, zmq.POLLIN)
 
-        # Avvia il thread per ascoltare i messaggi IOPub
-        self.iopub_thread = threading.Thread(target=self._listen_iopub, daemon=True)
-        self.iopub_thread.start()
-        log_message("IOPub listener thread started.")
+        # <<< CHANGE: Start the unified listener thread
+        self.kernel_listener_thread = threading.Thread(
+            target=self._listen_kernel, daemon=True
+        )
+        self.kernel_listener_thread.start()
+        log_message("Unified kernel listener thread started.")
         self.send_to_lua(
             {"type": "status", "message": "connected", "kernel_info": self.kernel_info}
         )
 
-    def _listen_iopub(self):
-        log_message("IOPub listener thread running.")
+    # <<< CHANGE: This function now listens to BOTH shell and iopub sockets
+    def _listen_kernel(self):
+        log_message("Kernel listener thread running.")
         while not self.stop_event.is_set():
             try:
-                # Non bloccante per permettere al thread di terminare
-                if self.iopub_socket.poll(
-                    timeout=100, flags=zmq.POLLIN
-                ):  # Timeout di 100ms
-                    multipart_msg = self.iopub_socket.recv_multipart()
-                    # Jupyter messages have multiple parts. The actual message is usually after some identity frames.
-                    # We need to find the part that contains the JSON header.
-                    # Typically, the message parts are: identities*, DELIMITER, hmac_signature, header, parent_header, metadata, content
-                    # The DELIMITER is b'<IDS|MSG>'
-                    # For simplicity, we'll assume the relevant JSON is in one of the later parts.
-                    # A more robust parser would be needed for all cases.
-                    # For now, try to decode the part that looks like a header.
-                    msg = {}
-                    for part in multipart_msg:
-                        try:
-                            # Find the part that is the main message content (usually after DELIMITER)
-                            # This is a simplification. A robust client needs to parse the wire protocol.
-                            # The actual message is typically after a b'<IDS|MSG>' delimiter.
-                            # We are interested in header, parent_header, metadata, content.
-                            # The zmq message is a list of byte strings.
-                            # header, parent_header, metadata, content are JSON strings.
-                            # We are looking for the part that contains the 'header'.
-                            # A common pattern is that the actual message starts after a delimiter part.
-                            # Let's find the delimiter
-                            if part == b"<IDS|MSG>":  # This is the delimiter
-                                # The next parts are signature, header, parent_header, metadata, content
-                                header_idx = (
-                                    multipart_msg.index(part) + 2
-                                )  # header is 2 after delimiter
-                                if header_idx < len(multipart_msg):
-                                    header = json.loads(
-                                        multipart_msg[header_idx].decode("utf-8")
-                                    )
-                                    parent_header = json.loads(
-                                        multipart_msg[header_idx + 1].decode("utf-8")
-                                    )
-                                    metadata = json.loads(
-                                        multipart_msg[header_idx + 2].decode("utf-8")
-                                    )
-                                    content = json.loads(
-                                        multipart_msg[header_idx + 3].decode("utf-8")
-                                    )
-                                    msg = {
-                                        "header": header,
-                                        "parent_header": parent_header,
-                                        "metadata": metadata,
-                                        "content": content,
-                                    }
-                                    break  # Found the message
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            continue  # Not a JSON part or not utf-8
+                # Poll both sockets with a timeout
+                sockets = dict(self.poller.poll(timeout=100))
 
-                    if (
-                        msg and "header" in msg
-                    ):  # Check if we successfully parsed a message
+                # Check for a message on the Shell socket (e.g., execute_reply)
+                if (
+                    self.shell_socket in sockets
+                    and sockets[self.shell_socket] == zmq.POLLIN
+                ):
+                    multipart_msg = self.shell_socket.recv_multipart()
+                    try:
+                        msg = self.session.deserialize(multipart_msg)
+                        msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                        log_message(f"Shell received: {msg_type}")
+                        # Forward the entire shell reply to Lua
+                        self.send_to_lua({"type": "shell", "message": msg})
+                    except Exception as e:
                         log_message(
-                            f"IOPub received: {msg.get('header', {}).get('msg_type')}"
+                            f"Shell received raw message but failed to deserialize: {e} - Raw: {multipart_msg}"
                         )
+
+                # Check for a message on the IOPub socket (e.g., status, stream, error)
+                if (
+                    self.iopub_socket in sockets
+                    and sockets[self.iopub_socket] == zmq.POLLIN
+                ):
+                    multipart_msg = self.iopub_socket.recv_multipart()
+                    try:
+                        msg = self.session.deserialize(multipart_msg)
+                        msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                        log_message(f"IOPub received: {msg_type}")
                         self.send_to_lua({"type": "iopub", "message": msg})
-                    elif multipart_msg:  # If we couldn't parse but received something
+                    except Exception as e:
                         log_message(
-                            f"IOPub received raw (could not parse as full Jupyter msg): {multipart_msg}"
+                            f"IOPub received raw message but failed to deserialize: {e} - Raw: {multipart_msg}"
                         )
 
             except zmq.ZMQError as e:
                 if e.errno == zmq.ETERM:
-                    log_message("IOPub: Context terminated.")
+                    log_message("Kernel Listener: Context terminated.")
                     break
-                log_message(f"IOPub ZMQError: {e}")
-                time.sleep(0.1)  # Avoid busy-looping on other errors
+                log_message(f"Kernel Listener ZMQError: {e}")
+                time.sleep(0.1)
             except Exception as e:
-                log_message(f"IOPub thread error: {e}")
+                log_message(f"Kernel Listener thread error: {e}")
                 time.sleep(0.1)
 
-    def send_execute_request(self, jupyter_msg):
-        # The jupyter_msg received from Lua is already a complete message structure
-        # We need to serialize each part (header, parent_header, metadata, content) to JSON strings
-        # and send them as a multipart ZMQ message.
-        # The client (DEALER) prepends an empty frame for routing when talking to a ROUTER (kernel shell).
-        # identities (none for kernel)
-        # <IDS|MSG> (delimiter)
-        # hmac (signature, can be empty if not using security)
-        # header (json string)
-        # parent_header (json string, can be empty dict)
-        # metadata (json string, can be empty dict)
-        # content (json string)
-        # buffers (optional)
-
-        log_message(
-            f"Sending execute_request: {jupyter_msg.get('header', {}).get('msg_type')}"
-        )
+    def send_execute_request(self, jupyter_msg_payload):
+        log_message(f"Preparing to send execute_request.")
         try:
-            # Ensure parent_header and metadata are at least empty dicts if not present
-            parent_header = jupyter_msg.get("parent_header", {})
-            metadata = jupyter_msg.get("metadata", {})
+            content = jupyter_msg_payload.get("content", {})
+            if not content or "code" not in content:
+                log_message("Error: execute_request content is missing or malformed.")
+                self.send_to_lua(
+                    {
+                        "type": "error",
+                        "message": "Execute request content missing 'code'.",
+                    }
+                )
+                return
 
-            # Construct the multipart message
-            # Note: pyzmq expects bytes. We need to encode JSON strings to UTF-8.
-            # The kernel might not require a signature if not configured for security.
-            # For simplicity, we'll send an empty signature. A real client should compute it.
-            # The shell socket is DEALER, it adds its own identity frame.
-            # Kernel's shell socket is ROUTER. It expects [identities..., DELIMITER, SIGNATURE, HEADER, PARENT_HEADER, METADATA, CONTENT, BUFFERS...]
-            # Since we are a DEALER, we don't add identities.
-            # The kernel might not be using security, so an empty signature might work.
-            # A proper client should handle message signing.
-            # For now, let's assume no signature or an empty one is fine.
-            # The structure is: [b"", <IDS|MSG>, signature, header_json, parent_header_json, metadata_json, content_json]
-            # However, when sending from DEALER to ROUTER, the ROUTER adds an identity frame for the DEALER.
-            # So the kernel receives: [dealer_identity, b"", <IDS|MSG>, ...]
-            # We send: [b"", <IDS|MSG>, ...]
-            # Let's try a simpler format first if the above is too complex for ipykernel_launcher default.
-            # Often, for execute_request, just sending the serialized parts is enough if not using full wire protocol.
-            # Let's try the full wire protocol structure.
-
-            delimiter = b"<IDS|MSG>"
-            # For now, an empty signature. A real client should generate this.
-            # This might cause issues if the kernel expects a valid signature.
-            signature = (
-                b""  # HMAC signature, should be calculated if security is enabled.
+            self.session.send(
+                self.shell_socket,
+                "execute_request",
+                content=content,
+                parent=jupyter_msg_payload.get("parent_header", {}),
+                metadata=jupyter_msg_payload.get("metadata", {}),
             )
-
-            header_json = json.dumps(jupyter_msg["header"]).encode("utf-8")
-            parent_header_json = json.dumps(parent_header).encode("utf-8")
-            metadata_json = json.dumps(metadata).encode("utf-8")
-            content_json = json.dumps(jupyter_msg["content"]).encode("utf-8")
-
-            self.shell_socket.send_multipart(
-                [
-                    delimiter,
-                    signature,
-                    header_json,
-                    parent_header_json,
-                    metadata_json,
-                    content_json,
-                ]
+            log_message(
+                f"Execute request for code '{content.get('code', '')[:50]}...' sent via session."
             )
-            log_message("Execute request sent to shell socket.")
-
-            # Shell socket should reply (e.g., execute_reply)
-            # This part is simplified; a full client would handle shell replies.
-            # For now, we assume IOPub will give us the results.
-            # shell_reply_parts = self.shell_socket.recv_multipart()
-            # log_message(f"Shell reply: {shell_reply_parts}")
-            # We can parse and send this to Lua if needed.
-            # For now, focus on IOPub for output.
 
         except Exception as e:
             log_message(f"Error sending execute_request: {e}")
@@ -246,7 +177,6 @@ class KernelClient:
             json_data = json.dumps(data)
             sys.stdout.write(json_data + "\n")
             sys.stdout.flush()
-            # log_message(f"Sent to Lua: {json_data[:200]}") # Log snippet
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
@@ -255,9 +185,9 @@ class KernelClient:
         log_message(f"Processing command from Lua: {command}")
 
         if command == "execute":
-            jupyter_msg = command_data.get("payload")
-            if jupyter_msg:
-                self.send_execute_request(jupyter_msg)
+            jupyter_msg_payload = command_data.get("payload")
+            if jupyter_msg_payload:
+                self.send_execute_request(jupyter_msg_payload)
             else:
                 log_message("Execute command received without payload.")
                 self.send_to_lua(
@@ -279,6 +209,10 @@ class KernelClient:
             )
 
     def run(self):
+        log_message(
+            "PYTHON DEBUG: In run() method, about to start listening on sys.stdin."
+        )
+
         log_message(
             "Python KernelClient now running and listening for commands from Lua via stdin."
         )
@@ -316,9 +250,9 @@ class KernelClient:
     def stop(self):
         log_message("Stopping KernelClient...")
         self.stop_event.set()
-        if self.iopub_thread and self.iopub_thread.is_alive():
-            self.iopub_thread.join(timeout=1)  # Wait for thread to finish
-            log_message("IOPub thread joined.")
+        if self.kernel_listener_thread and self.kernel_listener_thread.is_alive():
+            self.kernel_listener_thread.join(timeout=1)
+            log_message("Kernel listener thread joined.")
 
         if self.shell_socket:
             self.shell_socket.close()
@@ -335,7 +269,6 @@ class KernelClient:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        # This case should ideally not happen if Lua starts it correctly
         log_message("Error: Connection file path not provided.")
         print(
             json.dumps(
@@ -351,13 +284,10 @@ if __name__ == "__main__":
     connection_file = sys.argv[1]
     log_message(f"Python KernelClient starting with connection file: {connection_file}")
 
-    # Simple way to ensure the log file path is writable, or fallback.
     try:
         with open(LOG_FILE_PATH, "a") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Python client started.\n")
     except Exception:
-        # Fallback if default log path is not writable (e.g. permissions)
-        # This is a very basic fallback.
         LOG_FILE_PATH = os.path.join(os.getcwd(), "am_i_neokernel_py_client.log")
         log_message("Log file path changed to current working directory.")
 

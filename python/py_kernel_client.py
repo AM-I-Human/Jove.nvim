@@ -210,18 +210,26 @@ class KernelClient:
 
     def run(self):
         log_message(
-            "PYTHON DEBUG: In run() method, about to start listening on sys.stdin."
-        )
-
-        log_message(
             "Python KernelClient now running and listening for commands from Lua via stdin."
         )
         try:
-            for line in sys.stdin:
+            # <<< CHANGE: Replace the 'for' loop with a more robust 'while' loop
+            while True:
+                # readline() will block until a full line (ending in \n) is received
+                line = sys.stdin.readline()
+
+                # If readline() returns an empty string, it means stdin was closed (EOF).
+                if not line:
+                    log_message("Stdin closed (EOF). Exiting run loop.")
+                    break
+
                 line = line.strip()
                 if not line:
                     continue
-                log_message(f"Received from Lua (stdin): {line[:200]}")
+
+                log_message(
+                    f"Received from Lua (stdin): {line[:500]}"
+                )  # Increased log length
                 try:
                     command_data = json.loads(line)
                     self.process_command(command_data)
@@ -241,7 +249,6 @@ class KernelClient:
                             "message": f"Python client: Error processing command: {line}",
                         }
                     )
-
         except KeyboardInterrupt:
             log_message("KeyboardInterrupt received, shutting down.")
         finally:

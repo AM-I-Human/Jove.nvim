@@ -1,10 +1,10 @@
-import zmq
+import jupyter_client
 import json
 import sys
 import threading
 import time
 import os
-from jupyter_client.session import Session
+from queue import Empty
 
 # Configurazione del logging (semplice, per debug)
 LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
@@ -20,124 +20,67 @@ class KernelClient:
         log_message(
             f"Initializing KernelClient with connection file: {connection_file_path}"
         )
-        self.connection_file_path = connection_file_path
-        self.context = zmq.Context()
-        self.shell_socket = None
-        self.iopub_socket = None
-        self.poller = zmq.Poller()
-        self.stop_event = threading.Event()
-        self.kernel_listener_thread = None
-
-        self.kernel_info = self._read_connection_file()
-        if not self.kernel_info:
-            log_message("Failed to read or parse connection file.")
+        try:
+            self.kc = jupyter_client.KernelClient(
+                connection_file=connection_file_path
+            )
+            self.kc.load_connection_file()
+            self.kc.start_channels()
+            log_message("IOPub and Shell channels started.")
+        except Exception as e:
+            log_message(f"Failed to start jupyter_client.KernelClient: {e}")
             self.send_to_lua(
-                {"type": "error", "message": "Failed to read connection file"}
+                {"type": "error", "message": f"Failed to start KernelClient: {e}"}
             )
             sys.exit(1)
 
-        self.session = Session(key=self.kernel_info["key"].encode("utf-8"))
-
-        self._connect_sockets()
-
-    def _read_connection_file(self) -> dict:
-        try:
-            with open(self.connection_file_path, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            log_message(
-                f"Error reading connection file {self.connection_file_path}: {e}"
-            )
-            return {}
-
-    def _connect_sockets(self) -> None:
-        ip = self.kernel_info["ip"]
-        transport = self.kernel_info["transport"]
-
-        log_message(f"Connecting to kernel at {ip} using {transport}")
-
-        self.shell_socket = self.context.socket(zmq.DEALER)
-        self.shell_socket.connect(
-            f"{transport}://{ip}:{self.kernel_info['shell_port']}"
-        )
-        log_message(
-            f"Shell socket connected to {transport}://{ip}:{self.kernel_info['shell_port']}"
-        )
-
-        self.iopub_socket = self.context.socket(zmq.SUB)
-        self.iopub_socket.connect(
-            f"{transport}://{ip}:{self.kernel_info['iopub_port']}"
-        )
-        self.iopub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-        log_message(
-            f"IOPub socket connected and subscribed to {transport}://{ip}:{self.kernel_info['iopub_port']}"
-        )
-
-        self.poller.register(self.shell_socket, zmq.POLLIN)
-        self.poller.register(self.iopub_socket, zmq.POLLIN)
-
+        self.stop_event = threading.Event()
         self.kernel_listener_thread = threading.Thread(
             target=self._listen_kernel, daemon=True
         )
         self.kernel_listener_thread.start()
-        log_message("Unified kernel listener thread started.")
+        log_message("Kernel listener thread started.")
         self.send_to_lua(
-            {"type": "status", "message": "connected", "kernel_info": self.kernel_info}
+            {
+                "type": "status",
+                "message": "connected",
+                "kernel_info": self.kc.get_connection_info(),
+            }
         )
 
     def _listen_kernel(self):
         log_message("Kernel listener thread running.")
         while not self.stop_event.is_set():
             try:
-                sockets = dict(self.poller.poll(timeout=100))
+                # Block on iopub for a while, then check shell.
+                # This is more efficient than two timeouts or busy-waiting.
+                try:
+                    msg = self.kc.get_iopub_msg(timeout=0.1)
+                    msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                    log_message(f"IOPub received: {msg_type}")
+                    self.send_to_lua({"type": "iopub", "message": msg})
+                except Empty:
+                    pass  # No message on iopub, that's fine.
 
-                if (
-                    self.shell_socket in sockets
-                    and sockets[self.shell_socket] == zmq.POLLIN
-                    and self.shell_socket
-                ):
-                    multipart_msg = self.shell_socket.recv_multipart()
-                    try:
-                        msg = self.session.deserialize(multipart_msg)
-                        msg_type = msg.get("header", {}).get("msg_type", "unknown")
-                        log_message(f"Shell received: {msg_type}")
-                        self.send_to_lua({"type": "shell", "message": msg})
-                    except Exception as e:
-                        log_message(
-                            f"Shell received raw message but failed to deserialize: {e} - Raw: {multipart_msg}"
-                        )
+                # Check shell channel without blocking
+                try:
+                    msg = self.kc.get_shell_msg(timeout=0)
+                    msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                    log_message(f"Shell received: {msg_type}")
+                    self.send_to_lua({"type": "shell", "message": msg})
+                except Empty:
+                    pass  # No message on shell
 
-                if (
-                    self.iopub_socket in sockets
-                    and sockets[self.iopub_socket] == zmq.POLLIN
-                    and self.iopub_socket
-                ):
-                    multipart_msg = self.iopub_socket.recv_multipart()
-                    try:
-                        msg = self.session.deserialize(multipart_msg)
-                        msg_type = msg.get("header", {}).get("msg_type", "unknown")
-                        log_message(f"IOPub received: {msg_type}")
-                        self.send_to_lua({"type": "iopub", "message": msg})
-                    except Exception as e:
-                        log_message(
-                            f"IOPub received raw message but failed to deserialize: {e} - Raw: {multipart_msg}"
-                        )
-
-            except zmq.ZMQError as e:
-                if e.errno == zmq.ETERM:
-                    log_message("Kernel Listener: Context terminated.")
-                    break
-                log_message(f"Kernel Listener ZMQError: {e}")
-                time.sleep(0.1)
             except Exception as e:
                 log_message(f"Kernel Listener thread error: {e}")
-                time.sleep(0.1)
+                # Don't sleep here, get_iopub_msg timeout provides the wait
 
     def send_execute_request(self, jupyter_msg_payload):
-        log_message(f"Preparing to send execute_request.")
+        log_message("Preparing to send execute_request.")
         try:
             content = jupyter_msg_payload.get("content", {})
-            if not content or "code" not in content:
+            code = content.get("code")
+            if not code:
                 log_message("Error: execute_request content is missing or malformed.")
                 self.send_to_lua(
                     {
@@ -147,15 +90,17 @@ class KernelClient:
                 )
                 return
 
-            self.session.send(
-                self.shell_socket,
-                "execute_request",
-                content=content,
-                parent=jupyter_msg_payload.get("parent_header", {}),
-                metadata=jupyter_msg_payload.get("metadata", {}),
+            # The high-level `execute` method is simpler than session.send
+            self.kc.execute(
+                code=code,
+                silent=content.get("silent", False),
+                store_history=content.get("store_history", True),
+                user_expressions=content.get("user_expressions", {}),
+                allow_stdin=content.get("allow_stdin", False),
+                stop_on_error=content.get("stop_on_error", True),
             )
             log_message(
-                f"Execute request for code '{content.get('code', '')[:50]}...' sent via session."
+                f"Execute request for code '{code[:50]}...' sent via KernelClient."
             )
 
         except Exception as e:
@@ -251,15 +196,9 @@ class KernelClient:
             self.kernel_listener_thread.join(timeout=1)
             log_message("Kernel listener thread joined.")
 
-        if self.shell_socket:
-            self.shell_socket.close()
-            log_message("Shell socket closed.")
-        if self.iopub_socket:
-            self.iopub_socket.close()
-            log_message("IOPub socket closed.")
-        if self.context:
-            self.context.term()
-            log_message("ZMQ context terminated.")
+        if self.kc.is_alive():
+            self.kc.stop_channels()
+            log_message("Jupyter channels stopped.")
         log_message("KernelClient stopped.")
         self.send_to_lua({"type": "status", "message": "disconnected"})
 

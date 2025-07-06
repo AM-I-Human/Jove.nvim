@@ -29,21 +29,26 @@ local function render_output(bufnr, row, text_lines, opts)
 	opts = opts or {}
 	local highlight = opts.highlight or "Comment"
 
-	-- First, clear any old output that might be on this line
 	clear_previous_output(bufnr, row)
 
-	-- Don't render if there's no text
 	if not text_lines or #text_lines == 0 then
 		return
+	end
+
+	-- The 'virt_text' option expects a list of [text, highlight_group] chunks.
+	-- We need to transform our list of strings into this format.
+	local virt_text_chunks = {}
+	for _, line in ipairs(text_lines) do
+		table.insert(virt_text_chunks, { line, highlight })
 	end
 
 	-- Create a new extmark to anchor the virtual text.
 	-- This is the core of the rendering logic.
 	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
-		virt_text = text_lines, -- Pass the table of lines
+		virt_text = virt_text_chunks, -- Pass the correctly formatted table of chunks
 		virt_text_pos = "below", -- CRITICAL: Display output *below* the code line
 		virt_text_hide = false, -- Make sure the virtual text is visible
-		hl_group = highlight, -- Apply the desired highlight
+		-- The highlight is now specified per-chunk in virt_text, so hl_group is not needed here.
 	})
 
 	-- Store the new mark ID in our cache so we can clear it later

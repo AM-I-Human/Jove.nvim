@@ -18,17 +18,17 @@ function M.create_execute_request(code)
 		code = code,
 		silent = false,
 		store_history = true,
-		user_expressions = {},
+		user_expressions = vim.empty_dict(), -- Usa un dizionario vuoto per la corretta codifica JSON
 		allow_stdin = false,
 		stop_on_error = true,
 	}
 
 	local msg = {
 		header = new_header("execute_request"),
-		metadata = {},
+		metadata = vim.empty_dict(), -- Usa un dizionario vuoto
 		content = content,
-		buffers = {},
-		parent_header = {},
+		buffers = {}, -- Questo deve essere un array JSON, quindi {} va bene
+		parent_header = vim.empty_dict(), -- Usa un dizionario vuoto
 	}
 	return msg
 end

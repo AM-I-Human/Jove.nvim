@@ -56,28 +56,31 @@ end
 --- Handles 'stream' messages (e.g., from a print() statement).
 function M.render_stream(bufnr, row, jupyter_msg)
 	local text = jupyter_msg.content.text
-	-- CRITICAL: Split the incoming text into a table of lines
-	local lines = vim.split(text, "\n", { trimempty = false })
-
-	-- Often, a print statement adds a final newline, creating an empty string
-	-- at the end of the table. We usually don't want to display this empty line.
-	if lines[#lines] == "" then
-		table.remove(lines)
+	if not text or text == "" then
+		return
 	end
 
-	render_output(bufnr, row, lines, { highlight = "Comment" })
+	-- Sanitize newlines and split, removing empty lines automatically.
+	text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+	local lines = vim.split(text, "\n", { trimempty = true })
+
+	if #lines > 0 then
+		render_output(bufnr, row, lines, { highlight = "Comment" })
+	end
 end
 
 --- Handles 'execute_result' messages (the final return value of a cell).
 function M.render_execute_result(bufnr, row, jupyter_msg)
 	local text_plain = jupyter_msg.content.data["text/plain"]
-	if text_plain then
-		local lines = vim.split(text_plain, "\n", { trimempty = false })
-		if lines[#lines] == "" then
-			table.remove(lines)
+	if text_plain and text_plain ~= "" then
+		-- Sanitize newlines and split, removing empty lines automatically.
+		text_plain = text_plain:gsub("\r\n", "\n"):gsub("\r", "\n")
+		local lines = vim.split(text_plain, "\n", { trimempty = true })
+
+		if #lines > 0 then
+			-- Use a different highlight to distinguish results from print statements
+			render_output(bufnr, row, lines, { highlight = "String" })
 		end
-		-- Use a different highlight to distinguish results from print statements
-		render_output(bufnr, row, lines, { highlight = "String" })
 	end
 end
 

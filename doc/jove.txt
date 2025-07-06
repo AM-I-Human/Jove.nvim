@@ -29,10 +29,10 @@ L'MVP attuale consente di:
 - Neovim 0.7 o superiore (consigliato 0.8+ per una migliore gestione dei job).
 - Python 3.x installato e disponibile nel PATH (il comando `python` o `python3` deve funzionare).
 - `ipykernel` installato nell'ambiente Python (`pip install ipykernel`).
-- `pyzmq` installato nell'ambiente Python (`pip install pyzmq`).
+- `jupyter_client` installato nell'ambiente Python (`pip install jupyter_client`).
 
 Il plugin ora utilizza uno script Python helper che si occupa della comunicazione
-ZeroMQ con il kernel Jupyter.
+con il kernel Jupyter tramite la libreria `jupyter_client`.
 
 ==============================================================================
 3. Installazione                                        *jove-installation*
@@ -48,10 +48,10 @@ ZeroMQ con il kernel Jupyter.
    Sostituisci `/path/to/your/jove` con il percorso effettivo del
    tuo plugin.
 
-2. Assicurati che `ipykernel` e `pyzmq` siano installati nell'ambiente Python
+2. Assicurati che `ipykernel` e `jupyter_client` siano installati nell'ambiente Python
    che intendi utilizzare. Puoi installarli con pip:
    >
-   pip install ipykernel pyzmq
+   pip install ipykernel jupyter_client
    <
    Oppure, se usi ambienti virtuali, assicurati che siano installati
    nell'ambiente attivo quando Neovim avvia il kernel.

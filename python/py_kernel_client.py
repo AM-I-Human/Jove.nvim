@@ -21,7 +21,7 @@ class KernelClient:
             f"Initializing KernelClient with connection file: {connection_file_path}"
         )
         try:
-            self.kc = jupyter_client.KernelClient(
+            self.kc = jupyter_client.BlockingKernelClient(
                 connection_file=connection_file_path
             )
             self.kc.load_connection_file()

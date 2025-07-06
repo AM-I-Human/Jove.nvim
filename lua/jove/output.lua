@@ -29,29 +29,44 @@ local function render_output(bufnr, row, text_lines, opts)
 	opts = opts or {}
 	local highlight = opts.highlight or "Comment"
 
+	print(string.format("render_output called with bufnr=%d, row=%d", bufnr, row))
+
+	-- Debug: check if text_lines is nil or empty
+	if not text_lines then
+		print("text_lines is nil")
+	else
+		print("text_lines contents:")
+		for i, line in ipairs(text_lines) do
+			print(string.format("  line %d: %s", i, line))
+		end
+	end
+
 	clear_previous_output(bufnr, row)
 
 	if not text_lines or #text_lines == 0 then
+		print("No text_lines to render, returning early")
 		return
 	end
 
-	-- The 'virt_text' option expects a list of [text, highlight_group] chunks.
-	-- We need to transform our list of strings into this format.
 	local virt_text_chunks = {}
 	for _, line in ipairs(text_lines) do
 		table.insert(virt_text_chunks, { line, highlight })
 	end
 
-	-- Create a new extmark to anchor the virtual text.
-	-- This is the core of the rendering logic.
+	-- Debug: print virt_text_chunks
+	print("virt_text_chunks prepared:")
+	for i, chunk in ipairs(virt_text_chunks) do
+		print(string.format("  chunk %d: text='%s', highlight='%s'", i, chunk[1], chunk[2]))
+	end
+
 	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
-		virt_text = virt_text_chunks, -- Pass the correctly formatted table of chunks
-		virt_text_pos = "below", -- CRITICAL: Display output *below* the code line
-		virt_text_hide = false, -- Make sure the virtual text is visible
-		-- The highlight is now specified per-chunk in virt_text, so hl_group is not needed here.
+		virt_text = virt_text_chunks,
+		virt_text_pos = "below",
+		virt_text_hide = false,
 	})
 
-	-- Store the new mark ID in our cache so we can clear it later
+	print(string.format("Set extmark with id %d at row %d", mark_id, row))
+
 	if not line_marks[bufnr] then
 		line_marks[bufnr] = {}
 	end

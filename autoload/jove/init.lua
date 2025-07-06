@@ -2,7 +2,7 @@
 -- Questo file è ora utilizzato principalmente per funzioni autoload che potrebbero
 -- essere chiamate da altre parti del plugin o dall'utente, se necessario.
 -- L'inizializzazione principale (impostazione di variabili globali e default)
--- è stata spostata in lua/am_i_neokernel.lua per assicurare che venga eseguita
+-- è stata spostata in lua/jove.lua per assicurare che venga eseguita
 -- correttamente da lazy.nvim.
 
 -- Puoi lasciare questo file vuoto o aggiungere funzioni specifiche di autoload qui.
@@ -10,7 +10,7 @@
 --
 -- local M = {}
 -- function M.get_config()
---   return vim.g.am_i_neokernel_kernels
+--   return vim.g.jove_kernels
 -- end
 -- return M
 

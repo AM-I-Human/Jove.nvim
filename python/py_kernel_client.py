@@ -7,7 +7,7 @@ import os
 from jupyter_client.session import Session
 
 # Configurazione del logging (semplice, per debug)
-LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "am_i_neokernel_py_client.log")
+LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
 
 
 def log_message(message):
@@ -26,7 +26,7 @@ class KernelClient:
         self.iopub_socket = None
         self.poller = zmq.Poller()
         self.stop_event = threading.Event()
-        self.kernel_listener_thread = None  # <<< CHANGE: Renamed for clarity
+        self.kernel_listener_thread = None
 
         self.kernel_info = self._read_connection_file()
         if not self.kernel_info:
@@ -40,7 +40,7 @@ class KernelClient:
 
         self._connect_sockets()
 
-    def _read_connection_file(self):
+    def _read_connection_file(self) -> dict:
         try:
             with open(self.connection_file_path, "r") as f:
                 return json.load(f)
@@ -48,9 +48,9 @@ class KernelClient:
             log_message(
                 f"Error reading connection file {self.connection_file_path}: {e}"
             )
-            return None
+            return {}
 
-    def _connect_sockets(self):
+    def _connect_sockets(self) -> None:
         ip = self.kernel_info["ip"]
         transport = self.kernel_info["transport"]
 
@@ -73,11 +73,9 @@ class KernelClient:
             f"IOPub socket connected and subscribed to {transport}://{ip}:{self.kernel_info['iopub_port']}"
         )
 
-        # <<< CHANGE: The poller is already set up for both, which is perfect!
         self.poller.register(self.shell_socket, zmq.POLLIN)
         self.poller.register(self.iopub_socket, zmq.POLLIN)
 
-        # <<< CHANGE: Start the unified listener thread
         self.kernel_listener_thread = threading.Thread(
             target=self._listen_kernel, daemon=True
         )
@@ -87,35 +85,32 @@ class KernelClient:
             {"type": "status", "message": "connected", "kernel_info": self.kernel_info}
         )
 
-    # <<< CHANGE: This function now listens to BOTH shell and iopub sockets
     def _listen_kernel(self):
         log_message("Kernel listener thread running.")
         while not self.stop_event.is_set():
             try:
-                # Poll both sockets with a timeout
                 sockets = dict(self.poller.poll(timeout=100))
 
-                # Check for a message on the Shell socket (e.g., execute_reply)
                 if (
                     self.shell_socket in sockets
                     and sockets[self.shell_socket] == zmq.POLLIN
+                    and self.shell_socket
                 ):
                     multipart_msg = self.shell_socket.recv_multipart()
                     try:
                         msg = self.session.deserialize(multipart_msg)
                         msg_type = msg.get("header", {}).get("msg_type", "unknown")
                         log_message(f"Shell received: {msg_type}")
-                        # Forward the entire shell reply to Lua
                         self.send_to_lua({"type": "shell", "message": msg})
                     except Exception as e:
                         log_message(
                             f"Shell received raw message but failed to deserialize: {e} - Raw: {multipart_msg}"
                         )
 
-                # Check for a message on the IOPub socket (e.g., status, stream, error)
                 if (
                     self.iopub_socket in sockets
                     and sockets[self.iopub_socket] == zmq.POLLIN
+                    and self.iopub_socket
                 ):
                     multipart_msg = self.iopub_socket.recv_multipart()
                     try:
@@ -174,7 +169,7 @@ class KernelClient:
 
     def send_to_lua(self, data):
         try:
-            json_data = json.dumps(data)
+            json_data = json.dumps(data, default=repr)
             sys.stdout.write(json_data + "\n")
             sys.stdout.flush()
         except Exception as e:
@@ -213,12 +208,9 @@ class KernelClient:
             "Python KernelClient now running and listening for commands from Lua via stdin."
         )
         try:
-            # <<< CHANGE: Replace the 'for' loop with a more robust 'while' loop
             while True:
-                # readline() will block until a full line (ending in \n) is received
                 line = sys.stdin.readline()
 
-                # If readline() returns an empty string, it means stdin was closed (EOF).
                 if not line:
                     log_message("Stdin closed (EOF). Exiting run loop.")
                     break
@@ -227,9 +219,7 @@ class KernelClient:
                 if not line:
                     continue
 
-                log_message(
-                    f"Received from Lua (stdin): {line[:500]}"
-                )  # Increased log length
+                log_message(f"Received from Lua (stdin): {line[:500]}")
                 try:
                     command_data = json.loads(line)
                     self.process_command(command_data)
@@ -295,7 +285,7 @@ if __name__ == "__main__":
         with open(LOG_FILE_PATH, "a") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Python client started.\n")
     except Exception:
-        LOG_FILE_PATH = os.path.join(os.getcwd(), "am_i_neokernel_py_client.log")
+        LOG_FILE_PATH = os.path.join(os.getcwd(), "jove_py_client.log")
         log_message("Log file path changed to current working directory.")
 
     client = KernelClient(connection_file)

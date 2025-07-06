@@ -1,19 +1,19 @@
-*am_i_neokernel.txt* Plugin Neovim per un REPL Python interattivo.
+*jove.txt* Plugin Neovim per un REPL Python interattivo.
 
 ==============================================================================
-INDICE                                                  *am_i_neokernel-contents*
+INDICE                                                  *jove-contents*
 
-1. Introduzione                                         |am_i_neokernel-intro|
-2. Requisiti                                            |am_i_neokernel-requirements|
-3. Installazione                                        |am_i_neokernel-installation|
-4. Configurazione                                       |am_i_neokernel-configuration|
-5. Comandi                                              |am_i_neokernel-commands|
-6. Mappature Esempio                                    |am_i_neokernel-mappings|
+1. Introduzione                                         |jove-intro|
+2. Requisiti                                            |jove-requirements|
+3. Installazione                                        |jove-installation|
+4. Configurazione                                       |jove-configuration|
+5. Comandi                                              |jove-commands|
+6. Mappature Esempio                                    |jove-mappings|
 
 ==============================================================================
-1. Introduzione                                         *am_i_neokernel-intro*
+1. Introduzione                                         *jove-intro*
 
-am_i_neokernel è un plugin Neovim che mira a fornire un ambiente REPL
+jove è un plugin Neovim che mira a fornire un ambiente REPL
 interattivo per Python, con l'obiettivo futuro di supportare la visualizzazione
 di dataframe Pandas e plot direttamente nel buffer di Neovim.
 
@@ -24,7 +24,7 @@ L'MVP attuale consente di:
   virtuale sotto il codice eseguito.
 
 ==============================================================================
-2. Requisiti                                            *am_i_neokernel-requirements*
+2. Requisiti                                            *jove-requirements*
 
 - Neovim 0.7 o superiore (consigliato 0.8+ per una migliore gestione dei job).
 - Python 3.x installato e disponibile nel PATH (il comando `python` o `python3` deve funzionare).
@@ -35,17 +35,17 @@ Il plugin ora utilizza uno script Python helper che si occupa della comunicazion
 ZeroMQ con il kernel Jupyter.
 
 ==============================================================================
-3. Installazione                                        *am_i_neokernel-installation*
+3. Installazione                                        *jove-installation*
 
 1. Clona il repository o sposta la cartella del plugin nella tua directory
    `pack` di Neovim o usa il tuo gestore di plugin preferito.
    Esempio per Linux/macOS con gestione manuale:
    >
    mkdir -p ~/.config/nvim/pack/myplugins/start
-   ln -s /path/to/your/am_i_neokernel ~/.config/nvim/pack/myplugins/start/am_i_neokernel
+   ln -s /path/to/your/jove ~/.config/nvim/pack/myplugins/start/jove
    <
 
-   Sostituisci `/path/to/your/am_i_neokernel` con il percorso effettivo del
+   Sostituisci `/path/to/your/jove` con il percorso effettivo del
    tuo plugin.
 
 2. Assicurati che `ipykernel` e `pyzmq` siano installati nell'ambiente Python
@@ -57,16 +57,16 @@ ZeroMQ con il kernel Jupyter.
    nell'ambiente attivo quando Neovim avvia il kernel.
 
 ==============================================================================
-4. Configurazione                                       *am_i_neokernel-configuration*
+4. Configurazione                                       *jove-configuration*
 
 Aggiungi la seguente configurazione al tuo `init.lua`:
 >lua
 -- Carica il plugin. Questo imposterà le variabili necessarie e i comandi.
-require("am_i_neokernel")
+require("jove")
 
 -- (Opzionale) Personalizza la configurazione dei kernel.
 -- Questo deve essere fatto DOPO aver caricato il plugin se vuoi sovrascrivere i default.
-vim.g.am_i_neokernel_kernels = {
+vim.g.jove_kernels = {
     python = {
         cmd = "python -m ipykernel_launcher -f {connection_file}",
         -- Puoi aggiungere altre configurazioni qui, es. display_name
@@ -74,48 +74,48 @@ vim.g.am_i_neokernel_kernels = {
     -- Aggiungi altri kernel se necessario
 }
 <
-L'istruzione `require("am_i_neokernel")` è sufficiente per caricare il plugin
+L'istruzione `require("jove")` è sufficiente per caricare il plugin
 con la sua configurazione di default e rendere disponibili tutti i comandi.
 
 ==============================================================================
-5. Comandi                                              *am_i_neokernel-commands*
+5. Comandi                                              *jove-commands*
 
-*:AmINeoKernelStart* {kernel_name}
+*:JoveStart* {kernel_name}
     Avvia un kernel Jupyter specificato dal nome.
     {kernel_name} deve corrispondere a una chiave definita in
-    `vim.g.am_i_neokernel_kernels`.
+    `vim.g.jove_kernels`.
     Esempio: >
-        :AmINeoKernelStart python
+        :JoveStart python
     <
 
-*:AmINeoKernelExecute*
+*:JoveExecute*
     Esegue la riga corrente o la selezione visiva nel kernel attivo.
     Se non c'è una selezione visiva, esegue la riga su cui si trova il cursore.
     Richiede che un kernel sia già stato avviato e sia in stato "idle".
     Esempio (in modalità normale): >
-        :AmINeoKernelExecute
+        :JoveExecute
     <
     Esempio (dopo aver selezionato del testo in modalità visiva): >
-        :'<,'>AmINeoKernelExecute
+        :'<,'>JoveExecute
     <
 
-*:AmINeoKernelList*
-    Elenca tutti i kernel che sono stati avviati tramite AmINeoKernelStart
+*:JoveList*
+    Elenca tutti i kernel che sono stati avviati tramite JoveStart
     e il loro stato attuale (es. idle, busy, connecting_py_client, disconnected).
     Esempio: >
-        :AmINeoKernelList
+        :JoveList
     <
 
 ==============================================================================
-6. Mappature Esempio                                    *am_i_neokernel-mappings*
+6. Mappature Esempio                                    *jove-mappings*
 
 Puoi aggiungere queste mappature al tuo `init.lua` per un uso più comodo:
 >lua
 -- Esempio di mappatura in modalità normale per eseguire la riga corrente
-vim.api.nvim_set_keymap('n', '<Leader>ee', ':AmINeoKernelExecute<CR>', { noremap = true, silent = true, desc = "Esegui riga corrente" })
+vim.api.nvim_set_keymap('n', '<Leader>ee', ':JoveExecute<CR>', { noremap = true, silent = true, desc = "Esegui riga corrente" })
 
 -- Esempio di mappatura in modalità visiva per eseguire la selezione
-vim.api.nvim_set_keymap('x', '<Leader>ee', ':AmINeoKernelExecute<CR>', { noremap = true, silent = true, desc = "Esegui selezione" })
+vim.api.nvim_set_keymap('x', '<Leader>ee', ':JoveExecute<CR>', { noremap = true, silent = true, desc = "Esegui selezione" })
 <
 
 ==============================================================================

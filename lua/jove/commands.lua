@@ -1,5 +1,5 @@
-local kernel = require("am_i_neokernel.kernel")
--- local util = require("am_i_neokernel.util") -- Non ancora utilizzato, ma potrebbe servire in futuro
+local kernel = require("jove.kernel")
+-- local util = require("jove.util") -- Non ancora utilizzato, ma potrebbe servire in futuro
 
 local M = {}
 
@@ -11,15 +11,15 @@ function M.start_kernel_cmd(args)
 	local kernel_name = args.fargs[1]
 	if not kernel_name or kernel_name == "" then
 		vim.notify("Nome del kernel non specificato.", vim.log.levels.ERROR)
-		vim.api.nvim_err_writeln("Errore: specificare un nome per il kernel. Esempio: :AmINeoKernelStart python")
+		vim.api.nvim_err_writeln("Errore: specificare un nome per il kernel. Esempio: :JoveStart python")
 		return
 	end
 
 	-- Verifica se il kernel_name esiste nella configurazione globale
-	if not vim.g.am_i_neokernel_kernels or not vim.g.am_i_neokernel_kernels[kernel_name] then
+	if not vim.g.jove_kernels or not vim.g.jove_kernels[kernel_name] then
 		local err_msg = "Configurazione non trovata per il kernel: "
 			.. kernel_name
-			.. ". Verificare vim.g.am_i_neokernel_kernels."
+			.. ". Verificare vim.g.jove_kernels."
 		vim.notify(err_msg, vim.log.levels.ERROR)
 		vim.api.nvim_err_writeln("Errore: " .. err_msg)
 		return
@@ -34,7 +34,7 @@ end
 -- Usa il kernel attivo
 function M.execute_code_cmd(args)
 	if not active_kernel_name then
-		vim.notify("Nessun kernel attivo. Avviare un kernel con :AmINeoKernelStart <nome_kernel>", vim.log.levels.WARN)
+		vim.notify("Nessun kernel attivo. Avviare un kernel con :JoveStart <nome_kernel>", vim.log.levels.WARN)
 		return
 	end
 
@@ -65,12 +65,12 @@ function M.execute_code_cmd(args)
 	end
 end
 
-vim.api.nvim_create_user_command("AmINeoKernelStart", M.start_kernel_cmd, {
+vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	nargs = 1,
 	complete = function(arglead, cmdline, cursorpos)
-		if vim.g.am_i_neokernel_kernels then
+		if vim.g.jove_kernels then
 			local completions = {}
-			for name, _ in pairs(vim.g.am_i_neokernel_kernels) do
+			for name, _ in pairs(vim.g.jove_kernels) do
 				if string.sub(name, 1, #arglead) == arglead then
 					table.insert(completions, name)
 				end
@@ -82,7 +82,7 @@ vim.api.nvim_create_user_command("AmINeoKernelStart", M.start_kernel_cmd, {
 	desc = "Avvia un kernel Jupyter specificato (es. python).",
 })
 
-vim.api.nvim_create_user_command("AmINeoKernelExecute", M.execute_code_cmd, {
+vim.api.nvim_create_user_command("JoveExecute", M.execute_code_cmd, {
 	range = "%", -- Consente di gestire sia la riga corrente (senza range) sia un range (selezione visuale)
 	desc = "Esegue la riga corrente o la selezione visuale nel kernel attivo.",
 })
@@ -99,7 +99,7 @@ function M.list_kernels_cmd()
 	end
 end
 
-vim.api.nvim_create_user_command("AmINeoKernelList", M.list_kernels_cmd, {
+vim.api.nvim_create_user_command("JoveList", M.list_kernels_cmd, {
 	nargs = 0,
 	desc = "Elenca i kernel attualmente gestiti e il loro stato.",
 })

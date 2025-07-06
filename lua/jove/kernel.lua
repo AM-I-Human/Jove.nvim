@@ -10,7 +10,7 @@ function M.start(kernel_name)
 		return
 	end
 
-	local kernel_config = vim.g.am_i_neokernel_kernels[kernel_name] or {}
+	local kernel_config = vim.g.jove_kernels[kernel_name] or {}
 	local ipykernel_cmd_template = kernel_config.cmd
 	if not ipykernel_cmd_template then
 		vim.notify(
@@ -86,15 +86,15 @@ end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
 	vim.notify(
-		"[DebugKernel] M.start_python_client: Inizio. Valore di vim.g.am_i_neokernel_plugin_root = '"
-			.. vim.inspect(vim.g.am_i_neokernel_plugin_root)
+		"[DebugKernel] M.start_python_client: Inizio. Valore di vim.g.jove_plugin_root = '"
+			.. vim.inspect(vim.g.jove_plugin_root)
 			.. "'",
 		vim.log.levels.INFO
 	)
 
-	if not vim.g.am_i_neokernel_plugin_root or vim.g.am_i_neokernel_plugin_root == "" then
+	if not vim.g.jove_plugin_root or vim.g.jove_plugin_root == "" then
 		vim.notify(
-			"ERRORE KERNEL: Percorso radice del plugin (vim.g.am_i_neokernel_plugin_root) non impostato o vuoto. Impossibile avviare py_kernel_client.py.",
+			"ERRORE KERNEL: Percorso radice del plugin (vim.g.jove_plugin_root) non impostato o vuoto. Impossibile avviare py_kernel_client.py.",
 			vim.log.levels.ERROR
 		)
 		vim.fn.jobstop(ipykernel_job_id_ref)
@@ -102,14 +102,14 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		return
 	end
 
-	local py_client_script = vim.g.am_i_neokernel_plugin_root .. "/python/py_kernel_client.py"
+	local py_client_script = vim.g.jove_plugin_root .. "/python/py_kernel_client.py"
 	-- Assicurati che lo script esista
 	if vim.fn.filereadable(py_client_script) == 0 then
 		vim.notify(
 			"Script Python client non trovato o non leggibile: "
 				.. py_client_script
 				.. " (Plugin root: "
-				.. vim.g.am_i_neokernel_plugin_root
+				.. vim.g.jove_plugin_root
 				.. ")",
 			vim.log.levels.ERROR
 		)
@@ -122,17 +122,17 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	-- Potrebbe essere necessario renderlo configurabile (python, python3, etc.)
 	local python_executable = "python" -- Default
 	if
-		vim.g.am_i_neokernel_kernels
-		and vim.g.am_i_neokernel_kernels[kernel_name]
-		and vim.g.am_i_neokernel_kernels[kernel_name].python_executable
+		vim.g.jove_kernels
+		and vim.g.jove_kernels[kernel_name]
+		and vim.g.jove_kernels[kernel_name].python_executable
 	then
-		python_executable = vim.g.am_i_neokernel_kernels[kernel_name].python_executable
+		python_executable = vim.g.jove_kernels[kernel_name].python_executable
 	elseif
-		vim.g.am_i_neokernel_kernels
-		and vim.g.am_i_neokernel_kernels.python -- fallback al kernel 'python' globale se esiste
-		and vim.g.am_i_neokernel_kernels.python.python_executable
+		vim.g.jove_kernels
+		and vim.g.jove_kernels.python -- fallback al kernel 'python' globale se esiste
+		and vim.g.jove_kernels.python.python_executable
 	then
-		python_executable = vim.g.am_i_neokernel_kernels.python.python_executable
+		python_executable = vim.g.jove_kernels.python.python_executable
 	end
 	vim.notify("Eseguibile Python per il client: " .. python_executable, vim.log.levels.INFO)
 
@@ -285,9 +285,13 @@ function M.handle_py_client_message(kernel_name, json_line)
 		return
 	end
 
-	-- vim.notify("Messaggio da PyClient ("..kernel_name.."): "..vim.inspect(data), vim.log.levels.DEBUG)
+	local data_type = data.type
+	local jupyter_msg = data.message
 
-	if data.type == "status" then
+	-- Log generico per qualsiasi messaggio ricevuto da python
+	vim.notify("PyClient (" .. kernel_name .. ") sent: " .. data_type, vim.log.levels.DEBUG)
+
+	if data_type == "status" then
 		vim.notify("Stato client Python (" .. kernel_name .. "): " .. data.message, vim.log.levels.INFO)
 		if data.message == "connected" then
 			kernel_info.status = "idle" -- Il client Python è connesso al kernel Jupyter
@@ -301,63 +305,62 @@ function M.handle_py_client_message(kernel_name, json_line)
 			end
 			kernels[kernel_name] = nil -- Rimuovi completamente
 		end
-	elseif data.type == "iopub" then
-		local jupyter_msg = data.message
-		local msg_type = jupyter_msg.header.msg_type
-
-		local bufnr = kernel_info.current_execution_bufnr
-		local row = kernel_info.current_execution_row
-
-		if not bufnr or not row then
-			-- Questo può accadere per messaggi di stato IOPub non legati a un'esecuzione specifica
-			if msg_type == "status" then
-				-- vim.notify("IOPUB Status ("..kernel_name.."): "..jupyter_msg.content.execution_state, vim.log.levels.DEBUG)
-				if jupyter_msg.content.execution_state == "idle" and kernel_info.status == "busy" then
-					kernel_info.status = "idle" -- Il kernel Jupyter è di nuovo idle
-				elseif jupyter_msg.content.execution_state == "busy" and kernel_info.status == "idle" then
-					kernel_info.status = "busy"
-				end
-			else
-				-- vim.notify("Messaggio IOPUB ("..kernel_name..", "..msg_type..") ricevuto senza contesto di esecuzione.", vim.log.levels.DEBUG)
-			end
-			return
+	elseif data_type == "shell" then
+		if jupyter_msg.header.msg_type == "execute_reply" and jupyter_msg.content.status == "error" then
+			vim.notify("Shell reply indicates an error occurred.", vim.log.levels.WARN)
 		end
+	elseif data_type == "iopub" then
+		local msg_type = jupyter_msg.header.msg_type
+		vim.notify("IOPub message received: " .. msg_type, vim.log.levels.DEBUG) -- DEBUG
 
-		-- vim.notify("IOPUB ("..kernel_name..", "..msg_type..") per bufnr "..bufnr..", riga "..row, vim.log.levels.DEBUG)
+		if msg_type == "status" then
+			local exec_state = jupyter_msg.content.execution_state
+			vim.notify("Kernel status is now: " .. exec_state, vim.log.levels.INFO)
+			kernel_info.status = exec_state -- Directly set the status ('busy', 'idle', etc.)
 
-		if msg_type == "stream" then
-			require("am_i_neokernel.output").render_stream(bufnr, row, jupyter_msg)
-		elseif msg_type == "execute_result" then
-			require("am_i_neokernel.output").render_execute_result(bufnr, row, jupyter_msg)
-		elseif msg_type == "display_data" then
-			-- Aggiungere gestione per display_data se necessario (es. per immagini, HTML)
-			-- Per ora, potremmo provare a renderizzare text/plain se disponibile
-			if jupyter_msg.content.data and jupyter_msg.content.data["text/plain"] then
-				local text_plain_msg = {
-					header = jupyter_msg.header,
-					content = { data = { ["text/plain"] = jupyter_msg.content.data["text/plain"] } },
-				}
-				require("am_i_neokernel.output").render_execute_result(bufnr, row, text_plain_msg)
-			else
-				vim.notify(
-					"Ricevuto display_data non gestito: " .. vim.inspect(jupyter_msg.content.data),
-					vim.log.levels.INFO
+			-- If the kernel is now idle, clear the execution context
+			if exec_state == "idle" then
+				kernel_info.current_execution_bufnr = nil
+				kernel_info.current_execution_row = nil
+			end
+
+		elseif msg_type == "stream" then
+			if kernel_info.current_execution_bufnr then
+				require("jove.output").render_stream(
+					kernel_info.current_execution_bufnr,
+					kernel_info.current_execution_row,
+					jupyter_msg
 				)
 			end
+
+		elseif msg_type == "execute_result" then
+			if kernel_info.current_execution_bufnr then
+				require("jove.output").render_execute_result(
+					kernel_info.current_execution_bufnr,
+					kernel_info.current_execution_row,
+					jupyter_msg
+				)
+			end
+
+		elseif msg_type == "display_data" then
+			if kernel_info.current_execution_bufnr and jupyter_msg.content.data["text/plain"] then
+				require("jove.output").render_execute_result(
+					kernel_info.current_execution_bufnr,
+					kernel_info.current_execution_row,
+					jupyter_msg
+				)
+			end
+
 		elseif msg_type == "error" then
-			require("am_i_neokernel.output").render_error(bufnr, row, jupyter_msg)
-		elseif msg_type == "status" then
-			-- Lo stato del kernel Jupyter (non del client Python)
-			if jupyter_msg.content.execution_state == "idle" then
-				kernel_info.status = "idle"
-				-- Resetta il contesto dell'ultima esecuzione solo se era busy
-				-- kernel_info.current_execution_bufnr = nil
-				-- kernel_info.current_execution_row = nil
-			elseif jupyter_msg.content.execution_state == "busy" then
-				kernel_info.status = "busy"
+			if kernel_info.current_execution_bufnr then
+				require("jove.output").render_error(
+					kernel_info.current_execution_bufnr,
+					kernel_info.current_execution_row,
+					jupyter_msg
+				)
 			end
 		end
-	elseif data.type == "error" then
+	elseif data_type == "error" then
 		vim.notify("Errore dal client Python (" .. kernel_name .. "): " .. data.message, vim.log.levels.ERROR)
 	else
 		vim.notify(
@@ -386,7 +389,7 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 		return
 	end
 
-	local jupyter_msg_payload = require("am_i_neokernel.message").create_execute_request(cell_content)
+	local jupyter_msg_payload = require("jove.message").create_execute_request(cell_content)
 
 	kernel_info.current_execution_bufnr = bufnr
 	kernel_info.current_execution_row = row

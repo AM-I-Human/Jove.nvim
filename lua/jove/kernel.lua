@@ -155,12 +155,13 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		rpc = false, -- Stiamo usando stdio per JSON, non RPC di Neovim
 		pty = false, -- Non necessario per stdio
 		on_stdout = function(job_id, data, event)
-			-- log per debug
-			-- vim.notify("PY_CLIENT_STDOUT ("..kernel_name.."): "..vim.inspect(data), vim.log.levels.INFO)
 			if data then
 				for _, line in ipairs(data) do
 					if line ~= "" then
-						M.handle_py_client_message(kernel_name, line)
+						-- Schedule the handler to avoid blocking the event loop
+						vim.schedule(function()
+							M.handle_py_client_message(kernel_name, line)
+						end)
 					end
 				end
 			end

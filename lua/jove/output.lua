@@ -29,44 +29,27 @@ local function render_output(bufnr, row, text_lines, opts)
 	opts = opts or {}
 	local highlight = opts.highlight or "Comment"
 
-	print(string.format("render_output called with bufnr=%d, row=%d", bufnr, row))
-
-	-- Debug: check if text_lines is nil or empty
-	if not text_lines then
-		print("text_lines is nil")
-	else
-		print("text_lines contents:")
-		for i, line in ipairs(text_lines) do
-			print(string.format("  line %d: %s", i, line))
-		end
-	end
-
 	clear_previous_output(bufnr, row)
 
 	if not text_lines or #text_lines == 0 then
-		print("No text_lines to render, returning early")
 		return
 	end
 
-	local virt_text_chunks = {}
+	-- For Neovim 0.7+ compatibility, use `virt_lines`.
+	-- It expects a list of lines, where each line is a list of [text, hl_group] chunks.
+	local virt_lines_chunks = {}
 	for _, line in ipairs(text_lines) do
-		table.insert(virt_text_chunks, { line, highlight })
+		-- Each line is a table of chunks. Here, each line is just one chunk.
+		table.insert(virt_lines_chunks, { { line, highlight } })
 	end
 
-	-- Debug: print virt_text_chunks
-	print("virt_text_chunks prepared:")
-	for i, chunk in ipairs(virt_text_chunks) do
-		print(string.format("  chunk %d: text='%s', highlight='%s'", i, chunk[1], chunk[2]))
-	end
-
+	-- Create a new extmark to anchor the virtual text.
 	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
-		virt_text = virt_text_chunks,
-		virt_text_pos = "below",
-		virt_text_hide = false,
+		virt_lines = virt_lines_chunks,
+		virt_lines_above = false, -- Display below the line (default for Nvim 0.7)
 	})
 
-	print(string.format("Set extmark with id %d at row %d", mark_id, row))
-
+	-- Store the new mark ID in our cache so we can clear it later
 	if not line_marks[bufnr] then
 		line_marks[bufnr] = {}
 	end

@@ -75,12 +75,17 @@ end
 --- Handles 'execute_result' messages (the final return value of a cell).
 function M.render_execute_result(bufnr, row, jupyter_msg)
 	local text_plain = jupyter_msg.content.data["text/plain"]
+	local exec_count = jupyter_msg.content.execution_count
+
 	if text_plain and text_plain ~= "" then
 		-- Sanitize newlines and split, removing empty lines automatically.
 		text_plain = text_plain:gsub("\r\n", "\n"):gsub("\r", "\n")
 		local lines = vim.split(text_plain, "\n", { trimempty = true })
 
 		if #lines > 0 then
+			if exec_count then
+				lines[1] = string.format("[%d]: %s", exec_count, lines[1])
+			end
 			-- Use a different highlight to distinguish results from print statements
 			render_output(bufnr, row, lines, { highlight = "String" })
 		end

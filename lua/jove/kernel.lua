@@ -325,6 +325,14 @@ function M.handle_py_client_message(kernel_name, json_line)
 				kernel_info.current_execution_row = nil
 			end
 
+		elseif msg_type == "execute_input" then
+			if kernel_info.current_execution_bufnr then
+				require("jove.output").render_input_prompt(
+					kernel_info.current_execution_bufnr,
+					kernel_info.current_execution_row,
+					jupyter_msg
+				)
+			end
 		elseif msg_type == "stream" then
 			if kernel_info.current_execution_bufnr then
 				require("jove.output").render_stream(

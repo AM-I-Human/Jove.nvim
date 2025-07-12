@@ -121,11 +121,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	-- Comando per avviare lo script Python. Assicurati che 'python' sia nel PATH.
 	-- Potrebbe essere necessario renderlo configurabile (python, python3, etc.)
 	local python_executable = "python" -- Default
-	if
-		vim.g.jove_kernels
-		and vim.g.jove_kernels[kernel_name]
-		and vim.g.jove_kernels[kernel_name].python_executable
-	then
+	if vim.g.jove_kernels and vim.g.jove_kernels[kernel_name] and vim.g.jove_kernels[kernel_name].python_executable then
 		python_executable = vim.g.jove_kernels[kernel_name].python_executable
 	elseif
 		vim.g.jove_kernels
@@ -267,7 +263,7 @@ function M.send_to_py_client(kernel_name, data_table)
 	local payload_to_send = json_data .. "\n"
 	vim.notify("[LUA DEBUG] Sending to stdin: " .. vim.inspect(payload_to_send), vim.log.levels.WARN)
 	-- >>>>>>>> END OF ADDED DEBUG LINE <<<<<<<<<<
-	vim.fn.jobsend(kernel_info.py_client_job_id, json_data .. "\n") -- Aggiungi newline come delimitatore
+	vim.fn.jobsend(kernel_info.py_client_job_id, json_data .. "\n")
 end
 
 -- Gestisce i messaggi JSON ricevuti da stdout dello script Python
@@ -324,7 +320,6 @@ function M.handle_py_client_message(kernel_name, json_line)
 				kernel_info.current_execution_bufnr = nil
 				kernel_info.current_execution_row = nil
 			end
-
 		elseif msg_type == "execute_input" then
 			if kernel_info.current_execution_bufnr then
 				require("jove.output").render_input_prompt(
@@ -341,7 +336,6 @@ function M.handle_py_client_message(kernel_name, json_line)
 					jupyter_msg
 				)
 			end
-
 		elseif msg_type == "execute_result" then
 			if kernel_info.current_execution_bufnr then
 				require("jove.output").render_execute_result(
@@ -350,7 +344,6 @@ function M.handle_py_client_message(kernel_name, json_line)
 					jupyter_msg
 				)
 			end
-
 		elseif msg_type == "display_data" then
 			if kernel_info.current_execution_bufnr and jupyter_msg.content.data["text/plain"] then
 				require("jove.output").render_execute_result(
@@ -359,7 +352,6 @@ function M.handle_py_client_message(kernel_name, json_line)
 					jupyter_msg
 				)
 			end
-
 		elseif msg_type == "error" then
 			if kernel_info.current_execution_bufnr then
 				require("jove.output").render_error(

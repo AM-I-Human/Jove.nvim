@@ -1,3 +1,5 @@
+-- lua/jove/commands.lua
+
 local kernel = require("jove.kernel")
 local status = require("jove.status")
 -- local util = require("jove.util") -- Non ancora utilizzato, ma potrebbe servire in futuro
@@ -28,11 +30,10 @@ function M.start_kernel_cmd(args)
 
 	kernel.start(kernel_name)
 	active_kernel_name = kernel_name -- Imposta questo come kernel attivo
+	status.set_active_kernel(kernel_name) -- <<< NUOVA RIGA: Notifica al modulo di stato
 	vim.notify("Avvio del kernel '" .. kernel_name .. "' richiesto.", vim.log.levels.INFO)
 end
 
--- Comando per eseguire codice
--- Usa il kernel attivo
 function M.execute_code_cmd(args)
 	if not active_kernel_name then
 		vim.notify("Nessun kernel attivo. Avviare un kernel con :JoveStart <nome_kernel>", vim.log.levels.WARN)
@@ -66,10 +67,6 @@ function M.execute_code_cmd(args)
 	end
 end
 
-function M.status_text()
-	return status.get_status_text()
-end
-
 vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	nargs = 1,
 	complete = function(arglead, cmdline, cursorpos)
@@ -97,7 +94,7 @@ function M.list_kernels_cmd()
 	if #kernel_list == 0 then
 		vim.notify("Nessun kernel attualmente in esecuzione o gestito.", vim.log.levels.INFO)
 	else
-		vim.notify("Kernel gestiti:", vim.log.levels.INFO)
+		vim.notify("Kernel gestiti (info grezze):", vim.log.levels.INFO)
 		for _, status_line in ipairs(kernel_list) do
 			vim.api.nvim_echo({ { status_line, "Normal" } }, false, {})
 		end
@@ -106,7 +103,23 @@ end
 
 vim.api.nvim_create_user_command("JoveList", M.list_kernels_cmd, {
 	nargs = 0,
-	desc = "Elenca i kernel attualmente gestiti e il loro stato.",
+	desc = "Elenca i kernel attualmente gestiti e il loro stato (info grezze).",
+})
+function M.status_text()
+	return status.get_status_text()
+end
+
+function M.status_cmd()
+	local status_lines = status.get_full_status()
+	vim.notify("Stato dei kernel Jove:", vim.log.levels.INFO)
+	for _, line in ipairs(status_lines) do
+		vim.api.nvim_echo({ { line, "Normal" } }, false, {})
+	end
+end
+
+vim.api.nvim_create_user_command("JoveStatus", M.status_cmd, {
+	nargs = 0,
+	desc = "Mostra lo stato di tutti i kernel Jove gestiti.",
 })
 
 return M

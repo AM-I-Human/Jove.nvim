@@ -1,5 +1,6 @@
--- kernel.lua
--- local zmq = require("lzmq") -- Rimossa dipendenza da lzmq
+-- lua/jove/kernel.lua
+
+local status = require("jove.status")
 local M = {}
 
 local kernels = {} -- Memorizza lo stato dei client Python per ogni kernel
@@ -48,11 +49,11 @@ function M.start(kernel_name)
 				"Processo ipykernel per '" .. kernel_name .. "' terminato con codice: " .. exit_code,
 				vim.log.levels.INFO
 			)
-			-- Se il client Python era in esecuzione, dovremmo gestirne la chiusura.
 			if kernels[kernel_name] and kernels[kernel_name].py_client_job_id then
 				M.stop_python_client(kernel_name, "Il processo ipykernel è terminato.")
 			end
-			kernels[kernel_name] = nil -- Rimuovi completamente
+			kernels[kernel_name] = nil
+			status.remove_kernel(kernel_name)
 		end,
 	})
 
@@ -81,7 +82,9 @@ function M.start(kernel_name)
 			vim.fn.jobstop(ipykernel_job_id) -- Ferma il processo ipykernel se non possiamo connetterci
 			kernels[kernel_name] = nil
 		end
-	end, 3000) -- Aumentato ulteriormente il delay a 3 secondi
+	end, 3000)
+
+	status.update_status(kernel_name, "starting")
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
@@ -180,6 +183,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 			if kernel_entry then
 				kernel_entry.py_client_job_id = nil
 				kernel_entry.status = "disconnected"
+				status.update_status(kernel_name, "disconnected")
 				-- Non fermare ipykernel qui, potrebbe essere ancora utilizzabile o gestito separatamente
 			end
 		end,
@@ -291,16 +295,19 @@ function M.handle_py_client_message(kernel_name, json_line)
 	if data_type == "status" then
 		vim.notify("Stato client Python (" .. kernel_name .. "): " .. data.message, vim.log.levels.INFO)
 		if data.message == "connected" then
-			kernel_info.status = "idle" -- Il client Python è connesso al kernel Jupyter
+			kernel_info.status = "idle"
+			status.update_status(kernel_name, "idle")
 			kernel_info.py_kernel_connection_info = data.kernel_info -- Salva le info del kernel passate da python
 		elseif data.message == "disconnected" then
 			kernel_info.status = "disconnected"
+			status.update_status(kernel_name, "disconnected")
 			-- Potremmo voler fermare anche il processo ipykernel qui se non è già terminato
 			if kernel_info.ipykernel_job_id then
 				vim.fn.jobstop(kernel_info.ipykernel_job_id)
 				kernel_info.ipykernel_job_id = nil
 			end
-			kernels[kernel_name] = nil -- Rimuovi completamente
+			kernels[kernel_name] = nil
+			status.remove_kernel(kernel_name)
 		end
 	elseif data_type == "shell" then
 		if jupyter_msg.header.msg_type == "execute_reply" and jupyter_msg.content.status == "error" then
@@ -308,7 +315,8 @@ function M.handle_py_client_message(kernel_name, json_line)
 		end
 	elseif data_type == "iopub" then
 		local msg_type = jupyter_msg.header.msg_type
-		vim.notify("IOPub message received: " .. msg_type, vim.log.levels.DEBUG) -- DEBUG
+		vim.notify("IOPub message received: " .. msg_type, vim.log.levels.DEBUG)
+		status.update_status(kernel_name, exec_state)
 
 		if msg_type == "status" then
 			local exec_state = jupyter_msg.content.execution_state
@@ -394,7 +402,8 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 
 	kernel_info.current_execution_bufnr = bufnr
 	kernel_info.current_execution_row = row
-	kernel_info.status = "busy" -- Imposta lo stato a busy prima di inviare
+	kernel_info.status = "busy"
+	status.update_status(kernel_name, "busy")
 
 	M.send_to_py_client(kernel_name, {
 		command = "execute",

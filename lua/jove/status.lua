@@ -1,65 +1,74 @@
+-- lua/jove/status.lua
 local M = {}
 
--- Tabella che conterrà lo stato attuale.
--- La rendiamo accessibile all'interno del modulo.
-local state = {
-	active = false,
-	spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
-	spinner_index = 1,
-	timer = nil,
-	text = "✓ Idle", -- Testo di default quando non è in esecuzione
+-- Icone per un tocco visuale
+local icons = {
+	idle = "✓",
+	busy = "🚀",
+	starting = "⏳",
+	error = "✗",
+	disconnected = "⚪",
 }
 
--- Funzione interna per aggiornare lo spinner
-local function update_spinner()
-	state.spinner_index = (state.spinner_index % #state.spinner_chars) + 1
-	state.text = state.spinner_chars[state.spinner_index] .. " Running"
-	-- Forza un ridisegno della statusline
+-- Tabella che conterrà lo stato dei kernel
+local state = {
+	kernels = {}, -- Esempio: { python = "idle", julia = "busy" }
+	active_kernel = nil,
+}
+
+-- Funzione per aggiornare lo stato di un kernel specifico
+-- Chiamata da kernel.lua quando lo stato cambia.
+function M.update_status(kernel_name, status)
+	state.kernels[kernel_name] = status or "disconnected"
+	vim.cmd("redraws!") -- Forza un ridisegno della statusline
+end
+
+-- Funzione per impostare il kernel attivo
+-- Chiamata da commands.lua quando si usa :JoveStart
+function M.set_active_kernel(kernel_name)
+	state.active_kernel = kernel_name
 	vim.cmd("redraws!")
 end
 
--- Funzione per avviare lo spinner
-function M.start()
-	if state.timer and not state.timer:is_closed() then
-		return -- Già in esecuzione
-	end
-	state.active = true
-	-- Avvia il timer che chiama update_spinner ogni 80ms
-	state.timer = vim.loop.new_timer()
-	state.timer:start(0, 80, vim.schedule_wrap(update_spinner))
-end
-
--- Funzione per fermare lo spinner
-function M.stop(success)
-	if state.timer then
-		state.timer:stop()
-		state.timer:close()
-		state.timer = nil
-	end
-	state.active = false
-	if success == true then
-		state.text = "✓ Done"
-	elseif success == false then
-		state.text = "✗ Error"
-	else
-		state.text = "✓ Idle"
+-- Funzione per rimuovere un kernel quando viene fermato
+function M.remove_kernel(kernel_name)
+	state.kernels[kernel_name] = nil
+	if state.active_kernel == kernel_name then
+		state.active_kernel = nil
 	end
 	vim.cmd("redraws!")
-
-	-- Opzionale: resetta il testo a "Idle" dopo un po'
-	vim.defer_fn(function()
-		if not state.active then -- Controlla che non sia ripartito nel frattempo
-			state.text = "✓ Idle"
-			vim.cmd("redraws!")
-		end
-	end, 2000) -- dopo 2 secondi
 end
 
--- LA FUNZIONE CHIAVE PER L'UTENTE
--- Questa è la funzione che l'utente chiamerà dalla sua statusline.
+-- LA FUNZIONE CHIAVE PER L'UTENTE DELLA STATUSLINE
+-- Restituisce una stringa formattata per la statusline.
 function M.get_status_text()
-	-- Potresti aggiungere qui il nome del kernel o altre info
-	return "Jove: " .. state.text
+	if not state.active_kernel then
+		return "Jove: Idle"
+	end
+
+	local kernel_name = state.active_kernel
+	local kernel_status = state.kernels[kernel_name] or "disconnected"
+	local icon = icons[kernel_status] or "❔"
+
+	return string.format("Jove (%s): %s %s", kernel_name, icon, kernel_status)
+end
+
+-- Funzione per ottenere lo stato di tutti i kernel (per il comando :JoveStatus)
+function M.get_full_status()
+	if not next(state.kernels) then
+		return { "Nessun kernel Jove attivo." }
+	end
+
+	local status_lines = {}
+
+	for name, status in pairs(state.kernels) do
+		local line = string.format("Kernel: %s, Stato: %s", name, status)
+		if name == state.active_kernel then
+			line = line .. " (attivo)"
+		end
+		table.insert(status_lines, line)
+	end
+	return status_lines
 end
 
 return M

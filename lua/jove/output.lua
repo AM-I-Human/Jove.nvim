@@ -53,9 +53,10 @@ local function render_output(bufnr, row, text_lines, opts)
 	end
 
 	-- Create a new extmark to anchor the virtual text.
-	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
+	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, -1, {
 		virt_lines = virt_lines_chunks,
 		virt_lines_above = false, -- Display below the line (default for Nvim 0.7)
+		virt_text_pos = "right_align",
 	})
 
 	-- Store the new mark ID in our cache so we can clear it later
@@ -108,19 +109,13 @@ function M.render_input_prompt(bufnr, row, jupyter_msg)
 		return
 	end
 
-	-- It's possible we are re-running a cell. Clear any old prompt on this line.
 	clear_previous_prompt(bufnr, row)
 
-	-- Also clear any old output from a previous run on this line.
-	clear_previous_output(bufnr, row)
-
 	local prompt_text = string.format("In[%d]: ", exec_count)
-
-	-- Use an extmark with inline virtual text to display the prompt.
-	-- This requires Neovim 0.10+
 	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
 		virt_text = { { prompt_text, "Question" } },
 		virt_text_pos = "inline",
+		right_gravity = false,
 	})
 
 	if mark_id then

@@ -1,0 +1,4 @@
+- [ ] Creare un componente per la statusline e un comando `:JoveStatus` per mostrare lo stato.
+- [ ] Implementare un buffer di cronologia per visualizzare l'input e l'output delle celle eseguite.
+- [ ] Sostituire il prompt `In[n]:` con uno spinner durante l'esecuzione del codice.
+- [ ] Usare la statusline per gli aggiornamenti di stato (es. idle, running) al posto delle notifiche di `vim.notify`.

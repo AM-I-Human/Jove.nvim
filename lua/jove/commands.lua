@@ -1,4 +1,5 @@
 local kernel = require("jove.kernel")
+local status = require("jove.status")
 -- local util = require("jove.util") -- Non ancora utilizzato, ma potrebbe servire in futuro
 
 local M = {}
@@ -63,6 +64,10 @@ function M.execute_code_cmd(args)
 	else
 		vim.notify("Nessun codice da eseguire.", vim.log.levels.INFO)
 	end
+end
+
+function M.status_text()
+	return status.get_status_text()
 end
 
 vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {

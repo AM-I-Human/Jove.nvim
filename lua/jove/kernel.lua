@@ -53,16 +53,50 @@ function M.start(kernel_name)
 		return
 	end
 
-	vim.defer_fn(function()
-		local connection_info = M.parse_connection_file(connection_file)
-		if connection_info then
-			M.start_python_client(kernel_name, connection_file, ipykernel_job_id)
-		else
-			vim.notify("Fallimento nel leggere il file di connessione per: " .. kernel_name, vim.log.levels.ERROR)
+	local poll_interval_ms = 100
+	local timeout_ms = 10000 -- Wait for a maximum of 10 seconds
+	local attempts = timeout_ms / poll_interval_ms
+
+	local function poll_for_connection_file()
+		if attempts <= 0 then
+			vim.notify(
+				"Timeout: Il file di connessione per '" .. kernel_name .. "' non è stato creato in tempo.",
+				vim.log.levels.ERROR
+			)
 			vim.fn.jobstop(ipykernel_job_id)
 			status.update_status(kernel_name, "error")
+			return
 		end
-	end, 3000)
+
+		attempts = attempts - 1
+
+		-- Check if file exists and is readable
+		if vim.fn.filereadable(connection_file) == 1 then
+			-- Optional: Check if file has content, as it might be created empty first
+			local content = vim.fn.readfile(connection_file)
+			if content and #content > 0 then
+				local connection_info = M.parse_connection_file(connection_file)
+				if connection_info then
+					vim.notify("[Jove] File di connessione trovato, avvio del client Python.", vim.log.levels.INFO)
+					M.start_python_client(kernel_name, connection_file, ipykernel_job_id)
+				else
+					vim.notify(
+						"[Jove] Fallimento nel parsare il file di connessione, anche se esistente.",
+						vim.log.levels.ERROR
+					)
+					vim.fn.jobstop(ipykernel_job_id)
+					status.update_status(kernel_name, "error")
+				end
+				return -- Stop polling
+			end
+		end
+
+		-- If not ready, schedule the next check
+		vim.defer_fn(poll_for_connection_file, poll_interval_ms)
+	end
+
+	-- Start the first poll check
+	vim.defer_fn(poll_for_connection_file, poll_interval_ms)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
@@ -273,5 +307,19 @@ function M.list_running_kernels()
 	end
 	return running
 end
+
+vim.api.nvim_create_augroup("JoveCleanup", { clear = true })
+vim.api.nvim_create_autocmd("VimLeavePre", {
+	group = "JoveCleanup",
+	pattern = "*",
+	callback = function()
+		vim.notify("[Jove] Chiusura di Neovim, arresto di tutti i kernel...", vim.log.levels.INFO)
+		if kernels and next(kernels) ~= nil then
+			for name, _ in pairs(kernels) do
+				M.stop_python_client(name, "Chiusura di Neovim")
+			end
+		end
+	end,
+})
 
 return M

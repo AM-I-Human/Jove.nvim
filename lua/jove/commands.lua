@@ -107,6 +107,16 @@ vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	desc = "Avvia un kernel Jupyter specificato (es. python).",
 })
 
+if vim.g.jove_kernels == nil then
+	vim.g.jove_kernels = {
+		python = {
+			cmd = "python -m ipykernel_launcher -f {connection_file}",
+			-- python_executable = "python" -- L'utente può sovrascrivere per specificare python3, etc.
+		},
+	}
+	-- vim.notify("[Jove] Configurazione kernel di default impostata.", vim.log.levels.INFO)
+end
+
 vim.api.nvim_create_user_command("JoveExecute", M.execute_code_cmd, {
 	range = "%",
 	desc = "Esegue la riga corrente o la selezione visuale nel kernel attivo.",

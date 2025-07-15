@@ -13,15 +13,12 @@ function M.start(kernel_name)
 
 	status.update_status(kernel_name, "starting") -- Stato: in avvio
 
-	local kernel_config = vim.g.jove_kernels[kernel_name] or {}
-	local ipykernel_cmd_template = kernel_config.cmd
-	if not ipykernel_cmd_template then
-		vim.notify("Comando per avviare il kernel non trovato per: " .. kernel_name, vim.log.levels.ERROR)
-		status.update_status(kernel_name, "error")
-		return
-	end
-
+	local kernel_config = vim.g.jove_kernels[kernel_name]
+	local python_exec = kernel_config.python_executable or vim.g.jove_default_python or "python"
 	local connection_file = vim.fn.tempname() .. ".json"
+
+	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{python_executable}", python_exec)
+	ipykernel_cmd = string.gsub(ipykernel_cmd, "{connection_file}", connection_file)
 	local ipykernel_cmd = string.gsub(ipykernel_cmd_template, "{connection_file}", connection_file)
 
 	vim.notify("Avvio del processo ipykernel: " .. ipykernel_cmd, vim.log.levels.INFO)

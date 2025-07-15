@@ -6,10 +6,9 @@ local status = require("jove.status")
 
 local M = {}
 
-local active_kernel_name = nil -- Traccia il nome del kernel attualmente attivo
-
 -- Comando per avviare un kernel
 function M.start_kernel_cmd(args)
+	vim.notify("Checking for kernels. vim.g.jove_kernels is: " .. vim.inspect(vim.g.jove_kernels))
 	local kernel_name = args.fargs[1]
 	if not kernel_name or kernel_name == "" then
 		vim.notify("Nome del kernel non specificato.", vim.log.levels.ERROR)
@@ -27,13 +26,14 @@ function M.start_kernel_cmd(args)
 	end
 
 	kernel.start(kernel_name)
-	active_kernel_name = kernel_name
+	vim.b.jove_active_kernel = kernel_name -- Use buffer-local variable
 	status.set_active_kernel(kernel_name) -- Notifica al modulo di stato
-	vim.notify("Avvio del kernel '" .. kernel_name .. "' richiesto.", vim.log.levels.INFO)
+	vim.notify("Kernel '" .. kernel_name .. "' avviato per il buffer corrente.", vim.log.levels.INFO)
 end
 
 -- Comando per eseguire codice
 function M.execute_code_cmd(args)
+	local active_kernel_name = vim.b.jove_active_kernel
 	if not active_kernel_name then
 		vim.notify("Nessun kernel attivo. Avviare un kernel con :JoveStart <nome_kernel>", vim.log.levels.WARN)
 		return
@@ -106,16 +106,6 @@ vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	end,
 	desc = "Avvia un kernel Jupyter specificato (es. python).",
 })
-
-if vim.g.jove_kernels == nil then
-	vim.g.jove_kernels = {
-		python = {
-			cmd = "python -m ipykernel_launcher -f {connection_file}",
-			-- python_executable = "python" -- L'utente può sovrascrivere per specificare python3, etc.
-		},
-	}
-	-- vim.notify("[Jove] Configurazione kernel di default impostata.", vim.log.levels.INFO)
-end
 
 vim.api.nvim_create_user_command("JoveExecute", M.execute_code_cmd, {
 	range = "%",

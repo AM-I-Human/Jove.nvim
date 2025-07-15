@@ -43,7 +43,7 @@ end
 -- Restituisce una stringa formattata per la statusline.
 function M.get_status_text()
 	if not state.active_kernel then
-		return "Jove: Idle"
+		return "Jove: No kernel"
 	end
 
 	local kernel_name = state.active_kernel

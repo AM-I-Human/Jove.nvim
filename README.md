@@ -19,7 +19,7 @@ Il plugin utilizza uno script Python helper che comunica con il kernel Jupyter t
        vim.g.jove_kernels = {
            python = {
                cmd = "python -m ipykernel_launcher -f {connection_file}",
-               -- python_executable = "python" -- Specifica l'eseguibile Python se necessario
+               -- executable = "python" -- Specifica l'eseguibile Python se necessario
            },
        }
      end,

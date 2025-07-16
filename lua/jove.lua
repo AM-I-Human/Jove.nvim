@@ -8,7 +8,31 @@
 --
 --
 vim.g.jove_default_python = vim.g.jove_default_python or "python"
-local config = {}
+
+local function deep_merge(tbl1, tbl2)
+	local result = vim.deepcopy(tbl1)
+	for k, v in pairs(tbl2 or {}) do
+		if type(v) == "table" and type(result[k]) == "table" then
+			result[k] = deep_merge(result[k], v)
+		else
+			result[k] = v
+		end
+	end
+	return result
+end
+
+local defaults = {
+	kernels = {
+		python = {
+			cmd = "python -m ipykernel_launcher -f {connection_file}",
+			executable = "python",
+			this_is_the_default = true,
+		},
+	},
+}
+
+local config = vim.deepcopy(defaults)
+
 local M = {}
 --
 local current_file_path = vim.fn.expand("<sfile>:p")
@@ -34,34 +58,12 @@ else
 	end
 end
 
--- A helper to merge user options with defaults.
-local function merge_opts(defaults, user_opts)
-	user_opts = user_opts or {}
-	local merged = vim.deepcopy(defaults)
-	for k, v in pairs(user_opts) do
-		merged[k] = v
-	end
-	return merged
-end
-
 -- The main setup function. This will be called from init.lua.
 function M.setup(user_opts)
-	-- 1. Define the default configuration
-	local defaults = {
-		kernels = {
-			python = {
-				cmd = "python -m ipykernel_launcher -f {connection_file}",
-				python_executable = "python",
-			},
-		},
-	}
+	vim.notify("SetUp method")
+	config = deep_merge(defaults, user_opts)
 
-	-- 2. Merge user's configuration into the defaults
-	config = merge_opts(defaults, user_opts)
-
-	-- 3. Store the configuration in a global variable for now for compatibility
-	--    with other modules. The best practice would be to have other modules
-	--    call `require('jove').get_config()` instead.
+	vim.notify("New config" .. vim.inspect(config))
 
 	-- 4. Set the plugin root path
 	local current_file_path = vim.fn.expand("<sfile>:p")

@@ -1,26 +1,28 @@
 -- file: lua/jove/kernel.lua
 
-local status = require("jove.status") -- Importa il modulo di stato
-
 local M = {}
 local config = require("jove").get_config()
-local kernels = config.kernels
+local kernels_config = config.kernels
+local status = require("jove.status") -- Importa il modulo di stato
 
 function M.start(kernel_name)
-	if kernels[kernel_name] and kernels[kernel_name].py_client_job_id then
-		vim.notify("Kernel client for '" .. kernel_name .. "' is already running or starting.", vim.log.levels.WARN)
+	if not kernel_name then
+		vim.notify("Kernel name is nil", vim.log.levels.ERROR)
 		return
 	end
 
-	status.update_status(kernel_name, "starting") -- Stato: in avvio
+	if kernels_config[kernel_name] and kernels_config[kernel_name].py_client_job_id then
+		vim.notify("Kernel client for '" .. kernel_name .. "' is already running or starting.", vim.log.levels.WARN)
+		return
+	end
+	status.update_status(kernel_name, "starting")
 
-	local kernel_config = kernels[kernel_name]
-	local python_exec = kernel_config.python_executable or vim.g.jove_default_python or "python"
+	local kernel_config = kernels_config[kernel_name]
+	local python_exec = kernel_config.executable or vim.g.jove_default_python or "python"
 	local connection_file = vim.fn.tempname() .. ".json"
 
-	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{python_executable}", python_exec)
+	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{executable}", python_exec)
 	ipykernel_cmd = string.gsub(ipykernel_cmd, "{connection_file}", connection_file)
-	local ipykernel_cmd = string.gsub(ipykernel_cmd_template, "{connection_file}", connection_file)
 
 	vim.notify("Avvio del processo ipykernel: " .. ipykernel_cmd, vim.log.levels.INFO)
 	local ipykernel_job_id = vim.fn.jobstart(ipykernel_cmd, {
@@ -37,9 +39,9 @@ function M.start(kernel_name)
 				"Processo ipykernel per '" .. kernel_name .. "' terminato con codice: " .. exit_code,
 				vim.log.levels.INFO
 			)
-			if kernels[kernel_name] then
+			if kernels_config[kernel_name] then
 				M.stop_python_client(kernel_name, "Il processo ipykernel è terminato.")
-				kernels[kernel_name] = nil
+				kernels_config[kernel_name] = nil
 			end
 			status.remove_kernel(kernel_name) -- Rimuovi dallo stato
 		end,
@@ -113,10 +115,10 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		return
 	end
 
-	local python_executable = (kernels[kernel_name] or {}).python_executable or "python"
-	local py_client_cmd = { python_executable, "-u", py_client_script, connection_file_path }
+	local executable = (kernels_config[kernel_name] or {}).executable or "python"
+	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path }
 
-	kernels[kernel_name] = {
+	kernels_config[kernel_name] = {
 		status = "starting_py_client",
 		ipykernel_job_id = ipykernel_job_id_ref,
 		py_client_job_id = nil,
@@ -144,7 +146,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		end,
 		on_exit = function(_, exit_code, _)
 			local msg = "Client Python per '" .. kernel_name .. "' terminato con codice: " .. exit_code
-			local kernel_entry = kernels[kernel_name]
+			local kernel_entry = kernels_config[kernel_name]
 			if kernel_entry and kernel_entry.status ~= "disconnecting" then
 				vim.notify(msg, vim.log.levels.WARN)
 				status.update_status(kernel_name, "error")
@@ -160,17 +162,17 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 
 	if py_job_id <= 0 then
 		vim.notify("Errore nell'avvio del client Python per: " .. kernel_name, vim.log.levels.ERROR)
-		kernels[kernel_name] = nil
+		kernels_config[kernel_name] = nil
 		vim.fn.jobstop(ipykernel_job_id_ref)
 		status.update_status(kernel_name, "error")
 		return
 	end
 
-	kernels[kernel_name].py_client_job_id = py_job_id
+	kernels_config[kernel_name].py_client_job_id = py_job_id
 end
 
 function M.handle_py_client_message(kernel_name, json_line)
-	local kernel_info = kernels[kernel_name]
+	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info then
 		return
 	end
@@ -192,7 +194,7 @@ function M.handle_py_client_message(kernel_name, json_line)
 				vim.fn.jobstop(kernel_info.ipykernel_job_id)
 				kernel_info.ipykernel_job_id = nil
 			end
-			kernels[kernel_name] = nil
+			kernels_config[kernel_name] = nil
 			status.remove_kernel(kernel_name)
 		end
 	elseif data.type == "iopub" and data.message.header.msg_type == "status" then
@@ -230,7 +232,7 @@ function M.handle_py_client_message(kernel_name, json_line)
 end
 
 function M.execute_cell(kernel_name, cell_content, bufnr, row)
-	local kernel_info = kernels[kernel_name]
+	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
 		vim.notify("Client Python per '" .. kernel_name .. "' non attivo.", vim.log.levels.WARN)
 		return
@@ -256,7 +258,7 @@ end
 
 -- Funzioni di utility non modificate (parse_connection_file, send_to_py_client, etc.)
 function M.stop_python_client(kernel_name, reason)
-	local kernel_info = kernels[kernel_name]
+	local kernel_info = kernels_config[kernel_name]
 	if kernel_info and kernel_info.py_client_job_id then
 		vim.notify(
 			"Arresto del client Python per '" .. kernel_name .. "'. Motivo: " .. (reason or "richiesta utente"),
@@ -283,7 +285,7 @@ function M.parse_connection_file(filename)
 end
 
 function M.send_to_py_client(kernel_name, data_table)
-	local kernel_info = kernels[kernel_name]
+	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
 		return
 	end
@@ -293,10 +295,10 @@ end
 
 function M.list_running_kernels()
 	local running = {}
-	if not next(kernels) then
+	if not next(kernels_config) then
 		return { "Nessun kernel gestito al momento." }
 	end
-	for name, info in pairs(kernels) do
+	for name, info in pairs(kernels_config) do
 		local status_line = string.format(
 			"Kernel: %s, Stato: %s, IPYKernel Job ID: %s, PyClient Job ID: %s",
 			name,
@@ -315,8 +317,8 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 	pattern = "*",
 	callback = function()
 		vim.notify("[Jove] Chiusura di Neovim, arresto di tutti i kernel...", vim.log.levels.INFO)
-		if kernels and next(kernels) ~= nil then
-			for name, _ in pairs(kernels) do
+		if kernels_config and next(kernels_config) ~= nil then
+			for name, _ in pairs(kernels_config) do
 				M.stop_python_client(name, "Chiusura di Neovim")
 			end
 		end

@@ -3,7 +3,8 @@
 local status = require("jove.status") -- Importa il modulo di stato
 
 local M = {}
-local kernels = {}
+local config = require("jove").get_config()
+local kernels = config.kernels
 
 function M.start(kernel_name)
 	if kernels[kernel_name] and kernels[kernel_name].py_client_job_id then
@@ -13,7 +14,7 @@ function M.start(kernel_name)
 
 	status.update_status(kernel_name, "starting") -- Stato: in avvio
 
-	local kernel_config = vim.g.jove_kernels[kernel_name]
+	local kernel_config = kernels[kernel_name]
 	local python_exec = kernel_config.python_executable or vim.g.jove_default_python or "python"
 	local connection_file = vim.fn.tempname() .. ".json"
 
@@ -112,7 +113,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		return
 	end
 
-	local python_executable = (vim.g.jove_kernels[kernel_name] or {}).python_executable or "python"
+	local python_executable = (kernels[kernel_name] or {}).python_executable or "python"
 	local py_client_cmd = { python_executable, "-u", py_client_script, connection_file_path }
 
 	kernels[kernel_name] = {
@@ -269,6 +270,7 @@ function M.stop_python_client(kernel_name, reason)
 		end
 	end
 end
+
 function M.parse_connection_file(filename)
 	local file = io.open(filename, "r")
 	if not file then
@@ -279,6 +281,7 @@ function M.parse_connection_file(filename)
 	local ok, result = pcall(vim.json.decode, content)
 	return ok and result or nil
 end
+
 function M.send_to_py_client(kernel_name, data_table)
 	local kernel_info = kernels[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
@@ -287,6 +290,7 @@ function M.send_to_py_client(kernel_name, data_table)
 	local json_data = vim.json.encode(data_table)
 	vim.fn.jobsend(kernel_info.py_client_job_id, json_data .. "\n")
 end
+
 function M.list_running_kernels()
 	local running = {}
 	if not next(kernels) then

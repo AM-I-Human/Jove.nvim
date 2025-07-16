@@ -6,8 +6,10 @@
 -- :h directory contenente (../lua/)
 -- :h directory contenente (root del plugin)
 --
+--
 vim.g.jove_default_python = vim.g.jove_default_python or "python"
 local config = {}
+local M = {}
 --
 local current_file_path = vim.fn.expand("<sfile>:p")
 if current_file_path and current_file_path ~= "" and current_file_path ~= "<sfile>:p" then
@@ -60,7 +62,6 @@ function M.setup(user_opts)
 	-- 3. Store the configuration in a global variable for now for compatibility
 	--    with other modules. The best practice would be to have other modules
 	--    call `require('jove').get_config()` instead.
-	vim.g.jove_kernels = config.kernels
 
 	-- 4. Set the plugin root path
 	local current_file_path = vim.fn.expand("<sfile>:p")
@@ -79,4 +80,4 @@ end
 
 -- 3. Carica i comandi del plugin per renderli disponibili.
 -- Questo semplifica la configurazione per l'utente, che dovrà solo fare `require('jove')`.
-require("jove.commands")
+return M

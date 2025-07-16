@@ -2,13 +2,15 @@
 
 local kernel = require("jove.kernel")
 local status = require("jove.status")
--- local util = require("jove.util") -- Non ancora utilizzato, ma potrebbe servire in futuro
 
 local M = {}
+local config = require("jove").get_config()
+local kernels = config.kernels
 
 -- Comando per avviare un kernel
 function M.start_kernel_cmd(args)
-	vim.notify("Checking for kernels. vim.g.jove_kernels is: " .. vim.inspect(vim.g.jove_kernels))
+	Table.print(config)
+	vim.notify("Checking for kernels. kernels is: " .. vim.inspect(kernels))
 	local kernel_name = args.fargs[1]
 	if not kernel_name or kernel_name == "" then
 		vim.notify("Nome del kernel non specificato.", vim.log.levels.ERROR)
@@ -16,10 +18,8 @@ function M.start_kernel_cmd(args)
 		return
 	end
 
-	if not vim.g.jove_kernels or not vim.g.jove_kernels[kernel_name] then
-		local err_msg = "Configurazione non trovata per il kernel: "
-			.. kernel_name
-			.. ". Verificare vim.g.jove_kernels."
+	if not kernels or not kernels[kernel_name] then
+		local err_msg = "Configurazione non trovata per il kernel: " .. kernel_name .. ". Verificare kernels."
 		vim.notify(err_msg, vim.log.levels.ERROR)
 		vim.api.nvim_err_writeln("Errore: " .. err_msg)
 		return
@@ -93,9 +93,9 @@ end
 vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	nargs = 1,
 	complete = function(arglead, cmdline, cursorpos)
-		if vim.g.jove_kernels then
+		if kernels then
 			local completions = {}
-			for name, _ in pairs(vim.g.jove_kernels) do
+			for name, _ in pairs(kernels) do
 				if string.sub(name, 1, #arglead) == arglead then
 					table.insert(completions, name)
 				end

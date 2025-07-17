@@ -64,7 +64,6 @@ function M.execute_code_cmd(args)
 	end
 end
 
---- NUOVO ---
 -- Comando per ispezionare un oggetto
 function M.inspect_cmd()
 	local active_kernel_name = get_active_kernel_name()
@@ -72,13 +71,15 @@ function M.inspect_cmd()
 		return
 	end
 
-	local code = vim.api.nvim_get_current_line()
-	local cursor_pos = vim.api.nvim_win_get_cursor(0)[2] -- 0-indexed column
+	-- Invia l'intero contenuto del buffer per dare più contesto al kernel
+	local code = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+	-- Calcola la posizione del cursore in byte, come richiesto dal protocollo
+	local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
+	local cursor_pos_bytes = vim.fn.line2byte(cursor_row) + cursor_col - 1
 
-	kernel.inspect(active_kernel_name, code, cursor_pos)
+	kernel.inspect(active_kernel_name, code, cursor_pos_bytes)
 end
 
---- NUOVO ---
 -- Comando per interrompere il kernel
 function M.interrupt_cmd()
 	local active_kernel_name = get_active_kernel_name()
@@ -89,7 +90,6 @@ function M.interrupt_cmd()
 	kernel.interrupt(active_kernel_name)
 end
 
---- NUOVO ---
 -- Comando per riavviare il kernel
 function M.restart_cmd()
 	local active_kernel_name = get_active_kernel_name()
@@ -97,18 +97,17 @@ function M.restart_cmd()
 		return
 	end
 
-	vim.ui.confirm("Sei sicuro di voler riavviare il kernel '" .. active_kernel_name .. "'? Lo stato verrà perso.", {
-		"Riavvia",
-		"Annulla",
-	}, function(choice)
-		if choice == "Riavvia" then
-			vim.notify("Riavvio del kernel '" .. active_kernel_name .. "'...", vim.log.levels.INFO)
-			kernel.restart(active_kernel_name)
-		end
-	end)
+	-- --- CORREZIONE: Usa vim.fn.confirm invece di vim.ui.confirm ---
+	local question = "Sei sicuro di voler riavviare il kernel '" .. active_kernel_name .. "'? Lo stato verrà perso."
+	local choices = "&Riavvia\n&Annulla"
+	local choice = vim.fn.confirm(question, choices, 2)
+
+	if choice == 1 then -- 1 corrisponde alla prima scelta ("Riavvia")
+		vim.notify("Riavvio del kernel '" .. active_kernel_name .. "'...", vim.log.levels.INFO)
+		kernel.restart(active_kernel_name)
+	end
 end
 
---- NUOVO ---
 -- Comando per visualizzare la cronologia
 function M.history_cmd()
 	local active_kernel_name = get_active_kernel_name()
@@ -181,25 +180,21 @@ vim.api.nvim_create_user_command("JoveList", M.list_kernels_cmd, {
 	desc = "Elenca i kernel gestiti con informazioni di debug (job ID, etc.).",
 })
 
---- NUOVO ---
 vim.api.nvim_create_user_command("JoveInspect", M.inspect_cmd, {
 	nargs = 0,
 	desc = "Ispeziona l'oggetto sotto il cursore nel kernel attivo.",
 })
 
---- NUOVO ---
 vim.api.nvim_create_user_command("JoveInterrupt", M.interrupt_cmd, {
 	nargs = 0,
 	desc = "Invia una richiesta di interruzione al kernel attivo.",
 })
 
---- NUOVO ---
 vim.api.nvim_create_user_command("JoveRestart", M.restart_cmd, {
 	nargs = 0,
 	desc = "Riavvia il kernel attivo.",
 })
 
---- NUOVO ---
 vim.api.nvim_create_user_command("JoveHistory", M.history_cmd, {
 	nargs = 0,
 	desc = "Mostra la cronologia di esecuzione del kernel attivo.",

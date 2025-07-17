@@ -11,6 +11,7 @@ LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
 
 
 def log_message(message):
+    # Appends a message to the log file with a timestamp.
     with open(LOG_FILE_PATH, "a") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
 
@@ -53,7 +54,6 @@ class KernelClient:
         while not self.stop_event.is_set():
             try:
                 # Block on iopub for a while, then check shell.
-                # This is more efficient than two timeouts or busy-waiting.
                 try:
                     msg = self.kc.get_iopub_msg(timeout=0.1)
                     msg_type = msg.get("header", {}).get("msg_type", "unknown")
@@ -73,8 +73,17 @@ class KernelClient:
 
             except Exception as e:
                 log_message(f"Kernel Listener thread error: {e}")
-                # Don't sleep here, get_iopub_msg timeout provides the wait
 
+    def send_to_lua(self, data):
+        # Sends a JSON-serialized message to the Lua parent process via stdout.
+        try:
+            json_data = json.dumps(data, default=repr)
+            sys.stdout.write(json_data + "\n")
+            sys.stdout.flush()
+        except Exception as e:
+            log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
+
+    # --- METODI ESISTENTI ---
     def send_execute_request(self, jupyter_msg_payload):
         log_message("Preparing to send execute_request.")
         try:
@@ -90,7 +99,6 @@ class KernelClient:
                 )
                 return
 
-            # The high-level `execute` method is simpler than session.send
             self.kc.execute(
                 code=code,
                 silent=content.get("silent", False),
@@ -102,7 +110,6 @@ class KernelClient:
             log_message(
                 f"Execute request for code '{code[:50]}...' sent via KernelClient."
             )
-
         except Exception as e:
             log_message(f"Error sending execute_request: {e}")
             self.send_to_lua(
@@ -112,22 +119,76 @@ class KernelClient:
                 }
             )
 
-    def send_to_lua(self, data):
+    # --- NUOVI METODI AGGIUNTI ---
+
+    def send_inspect_request(self, content):
+        """Sends an inspect_request to the kernel."""
+        log_message(
+            f"Sending inspect_request for code: '{content.get('code')}' at pos {content.get('cursor_pos')}"
+        )
         try:
-            json_data = json.dumps(data, default=repr)
-            sys.stdout.write(json_data + "\n")
-            sys.stdout.flush()
+            self.kc.inspect(
+                code=content.get("code", ""),
+                cursor_pos=content.get("cursor_pos", 0),
+                detail_level=0,  # 0 for basic info, 1 for detailed
+            )
         except Exception as e:
-            log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
+            log_message(f"Error sending inspect_request: {e}")
+            self.send_to_lua(
+                {"type": "error", "message": f"Error sending inspect_request: {e}"}
+            )
+
+    def send_interrupt_request(self):
+        """Sends an interrupt_request to the kernel."""
+        log_message("Sending interrupt_request to kernel.")
+        try:
+            self.kc.interrupt_kernel()
+            log_message("Interrupt request sent.")
+            # The reply will be caught by the listener and forwarded to Lua.
+        except Exception as e:
+            log_message(f"Error sending interrupt_request: {e}")
+            self.send_to_lua(
+                {"type": "error", "message": f"Error sending interrupt_request: {e}"}
+            )
+
+    def send_restart_request(self):
+        """Sends a restart_request to the kernel."""
+        log_message("Requesting kernel restart.")
+        try:
+            self.kc.restart_kernel()
+            # The restart process is blocking and handles channel reconnection.
+            log_message("Kernel has been restarted.")
+            self.send_to_lua({"type": "status", "message": "kernel_restarted"})
+        except Exception as e:
+            log_message(f"Error on kernel restart: {e}")
+            self.send_to_lua(
+                {"type": "error", "message": f"Error on kernel restart: {e}"}
+            )
+
+    def send_history_request(self, content):
+        """Sends a history_request to the kernel."""
+        log_message("Sending history_request.")
+        try:
+            self.kc.history(
+                hist_access_type=content.get("hist_access_type", "range"),
+                raw=content.get("raw", True),
+                output=content.get("output", False),
+                # Other options like 'start', 'stop', 'n' can be added here
+            )
+        except Exception as e:
+            log_message(f"Error sending history_request: {e}")
+            self.send_to_lua(
+                {"type": "error", "message": f"Error sending history_request: {e}"}
+            )
 
     def process_command(self, command_data):
         command = command_data.get("command")
+        payload = command_data.get("payload")
         log_message(f"Processing command from Lua: {command}")
 
         if command == "execute":
-            jupyter_msg_payload = command_data.get("payload")
-            if jupyter_msg_payload:
-                self.send_execute_request(jupyter_msg_payload)
+            if payload:
+                self.send_execute_request(payload)
             else:
                 log_message("Execute command received without payload.")
                 self.send_to_lua(
@@ -136,6 +197,29 @@ class KernelClient:
                         "message": "Python client: Execute command missing payload.",
                     }
                 )
+
+        # --- NUOVA LOGICA PER I COMANDI ---
+        elif command == "inspect":
+            if payload:
+                self.send_inspect_request(payload)
+            else:
+                log_message("Inspect command received without payload.")
+                self.send_to_lua(
+                    {
+                        "type": "error",
+                        "message": "Python client: Inspect command missing payload.",
+                    }
+                )
+
+        elif command == "interrupt":
+            self.send_interrupt_request()
+
+        elif command == "restart":
+            self.send_restart_request()
+
+        elif command == "history":
+            self.send_history_request(payload if payload else {})
+
         elif command == "shutdown":
             log_message("Shutdown command received. Stopping client.")
             self.stop()
@@ -155,11 +239,9 @@ class KernelClient:
         try:
             while True:
                 line = sys.stdin.readline()
-
                 if not line:
                     log_message("Stdin closed (EOF). Exiting run loop.")
                     break
-
                 line = line.strip()
                 if not line:
                     continue
@@ -218,12 +300,14 @@ if __name__ == "__main__":
         sys.exit(1)
 
     connection_file = sys.argv[1]
-    log_message(f"Python KernelClient starting with connection file: {connection_file}")
-
+    # Initialize logging
     try:
-        with open(LOG_FILE_PATH, "a") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Python client started.\n")
+        with open(LOG_FILE_PATH, "w") as f:  # 'w' to clear log on start
+            f.write(
+                f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Python client starting with connection file: {connection_file}\n"
+            )
     except Exception:
+        # Fallback if user's home is not writable
         LOG_FILE_PATH = os.path.join(os.getcwd(), "jove_py_client.log")
         log_message("Log file path changed to current working directory.")
 

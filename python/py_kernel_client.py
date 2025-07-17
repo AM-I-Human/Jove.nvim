@@ -27,8 +27,7 @@ class KernelClient:
             )
             self.kc.load_connection_file()
             self.kc.start_channels()
-            self.kc.control_channel.start()
-            log_message("IOPub, Shell, and Control channels started.")
+            log_message("IOPub and Shell channels started.")
         except Exception as e:
             log_message(f"Failed to start jupyter_client.KernelClient: {e}")
             self.send_to_lua(
@@ -54,17 +53,24 @@ class KernelClient:
         log_message("Kernel listener thread running.")
         while not self.stop_event.is_set():
             try:
-                for channel_name in ["iopub", "shell", "control"]:
-                    try:
-                        channel = getattr(self.kc, f"{channel_name}_channel")
-                        msg = channel.get_msg(
-                            timeout=0.05
-                        )  # Timeout piccolo per non bloccare
-                        msg_type = msg.get("header", {}).get("msg_type", "unknown")
-                        log_message(f"Message received on {channel_name}: {msg_type}")
-                        self.send_to_lua({"type": channel_name, "message": msg})
-                    except Empty:
-                        pass  # Nessun messaggio, normale
+                # Block on iopub for a while, then check shell.
+                try:
+                    msg = self.kc.get_iopub_msg(timeout=0.1)
+                    msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                    log_message(f"IOPub received: {msg_type}")
+                    self.send_to_lua({"type": "iopub", "message": msg})
+                except Empty:
+                    pass  # No message on iopub, that's fine.
+
+                # Check shell channel without blocking
+                try:
+                    msg = self.kc.get_shell_msg(timeout=0)
+                    msg_type = msg.get("header", {}).get("msg_type", "unknown")
+                    log_message(f"Shell received: {msg_type}")
+                    self.send_to_lua({"type": "shell", "message": msg})
+                except Empty:
+                    pass  # No message on shell
+
             except Exception as e:
                 log_message(f"Kernel Listener thread error: {e}")
 
@@ -77,21 +83,39 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
-    def send_execute_request(self, content):
+    def send_execute_request(self, jupyter_msg_payload):
         log_message("Preparing to send execute_request.")
         try:
+            content = jupyter_msg_payload.get("content", {})
+            code = content.get("code")
+            if not code:
+                log_message("Error: execute_request content is missing or malformed.")
+                self.send_to_lua(
+                    {
+                        "type": "error",
+                        "message": "Execute request content missing 'code'.",
+                    }
+                )
+                return
+
             self.kc.execute(
-                code=content.get("code", ""),
+                code=code,
                 silent=content.get("silent", False),
                 store_history=content.get("store_history", True),
                 user_expressions=content.get("user_expressions", {}),
                 allow_stdin=content.get("allow_stdin", False),
                 stop_on_error=content.get("stop_on_error", True),
             )
+            log_message(
+                f"Execute request for code '{code[:50]}...' sent via KernelClient."
+            )
         except Exception as e:
             log_message(f"Error sending execute_request: {e}")
             self.send_to_lua(
-                {"type": "error", "message": f"Error sending execute_request: {e}"}
+                {
+                    "type": "error",
+                    "message": f"Python client error sending request: {e}",
+                }
             )
 
     def send_inspect_request(self, content):
@@ -111,13 +135,17 @@ class KernelClient:
                 {"type": "error", "message": f"Error sending inspect_request: {e}"}
             )
 
-    # --- CORREZIONE: Usa il canale di controllo per interrupt e restart ---
+    # --- METODI CORRETTI ---
+
     def send_interrupt_request(self):
-        """Sends an interrupt_request via the control channel."""
-        log_message("Sending interrupt_request to kernel via control channel.")
+        """Sends an interrupt_request to the kernel via the control channel."""
+        log_message("Sending interrupt_request to kernel.")
         try:
-            self.kc.control_channel.interrupt()
-            log_message("Interrupt request sent.")
+            # CORREZIONE: Invia un messaggio grezzo invece di chiamare un metodo di alto livello.
+            # Questo è più stabile tra le versioni di jupyter-client.
+            msg = self.kc.session.msg("interrupt_request", content={})
+            self.kc.control_channel.send(msg)
+            log_message("Interrupt request sent successfully.")
         except Exception as e:
             log_message(f"Error sending interrupt_request: {e}")
             self.send_to_lua(
@@ -125,12 +153,15 @@ class KernelClient:
             )
 
     def send_restart_request(self):
-        """Sends a restart_request via the control channel."""
-        log_message("Requesting kernel restart via control channel.")
+        """Sends a shutdown_request with restart=True to the kernel."""
+        log_message("Requesting kernel restart.")
         try:
-            self.kc.control_channel.restart()
-            log_message("Restart request sent.")
-            # La risposta 'restart_reply' verrà catturata dal listener
+            # CORREZIONE: Invia un messaggio grezzo 'shutdown_request' con restart=True.
+            self.kc.shutdown(restart=True)
+            log_message("Restart request sent successfully.")
+            # Notifica a Lua che la richiesta è stata inviata. Il listener del kernel
+            # si occuperà di rilevare il nuovo stato 'idle' quando il riavvio sarà completato.
+            self.send_to_lua({"type": "status", "message": "kernel_restarted"})
         except Exception as e:
             log_message(f"Error on kernel restart: {e}")
             self.send_to_lua(
@@ -157,20 +188,29 @@ class KernelClient:
         payload = command_data.get("payload")
         log_message(f"Processing command from Lua: {command}")
 
-        # Estrai il 'content' dal payload per tutti i messaggi
-        content = payload.get("content", {}) if payload else {}
-
         if command == "execute":
-            if content:
-                self.send_execute_request(content)
+            if payload:
+                self.send_execute_request(payload)
             else:
-                log_message("Execute command received without content.")
+                log_message("Execute command received without payload.")
+                self.send_to_lua(
+                    {
+                        "type": "error",
+                        "message": "Python client: Execute command missing payload.",
+                    }
+                )
 
         elif command == "inspect":
-            if content:
-                self.send_inspect_request(content)
+            if payload:
+                self.send_inspect_request(payload)
             else:
-                log_message("Inspect command received without content.")
+                log_message("Inspect command received without payload.")
+                self.send_to_lua(
+                    {
+                        "type": "error",
+                        "message": "Python client: Inspect command missing payload.",
+                    }
+                )
 
         elif command == "interrupt":
             self.send_interrupt_request()
@@ -179,7 +219,7 @@ class KernelClient:
             self.send_restart_request()
 
         elif command == "history":
-            self.send_history_request(content)
+            self.send_history_request(payload if payload else {})
 
         elif command == "shutdown":
             log_message("Shutdown command received. Stopping client.")
@@ -198,7 +238,11 @@ class KernelClient:
             "Python KernelClient now running and listening for commands from Lua via stdin."
         )
         try:
-            for line in sys.stdin:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    log_message("Stdin closed (EOF). Exiting run loop.")
+                    break
                 line = line.strip()
                 if not line:
                     continue
@@ -209,8 +253,20 @@ class KernelClient:
                     self.process_command(command_data)
                 except json.JSONDecodeError as e:
                     log_message(f"Failed to decode JSON from Lua: {e}. Line: {line}")
+                    self.send_to_lua(
+                        {
+                            "type": "error",
+                            "message": f"Python client: Invalid JSON from Lua: {line}",
+                        }
+                    )
                 except Exception as e:
                     log_message(f"Error processing line from Lua: {e}. Line: {line}")
+                    self.send_to_lua(
+                        {
+                            "type": "error",
+                            "message": f"Python client: Error processing command: {line}",
+                        }
+                    )
         except KeyboardInterrupt:
             log_message("KeyboardInterrupt received, shutting down.")
         finally:
@@ -221,16 +277,18 @@ class KernelClient:
         self.stop_event.set()
         if self.kernel_listener_thread and self.kernel_listener_thread.is_alive():
             self.kernel_listener_thread.join(timeout=1)
+            log_message("Kernel listener thread joined.")
 
         if self.kc.is_alive():
             self.kc.stop_channels()
-            self.kc.control_channel.stop()
+            log_message("Jupyter channels stopped.")
         log_message("KernelClient stopped.")
         self.send_to_lua({"type": "status", "message": "disconnected"})
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        log_message("Error: Connection file path not provided.")
         print(
             json.dumps(
                 {
@@ -244,7 +302,7 @@ if __name__ == "__main__":
 
     connection_file = sys.argv[1]
     try:
-        with open(LOG_FILE_PATH, "w") as f:  # 'w' to clear log on start
+        with open(LOG_FILE_PATH, "w") as f:
             f.write(
                 f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Python client starting with connection file: {connection_file}\n"
             )

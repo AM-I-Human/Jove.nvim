@@ -3,8 +3,11 @@
 local M = {}
 local config = require("jove").get_config()
 local kernels_config = config.kernels
-local status = require("jove.status") -- Importa il modulo di stato
+local status = require("jove.status")
+local message = require("jove.message")
+local output = require("jove.output")
 
+-- ... (le funzioni start, start_python_client, etc. rimangono invariate) ...
 function M.start(kernel_name)
 	if not kernel_name then
 		vim.notify("Kernel name is nil", vim.log.levels.ERROR)
@@ -70,9 +73,7 @@ function M.start(kernel_name)
 
 		attempts = attempts - 1
 
-		-- Check if file exists and is readable
 		if vim.fn.filereadable(connection_file) == 1 then
-			-- Optional: Check if file has content, as it might be created empty first
 			local content = vim.fn.readfile(connection_file)
 			if content and #content > 0 then
 				local connection_info = M.parse_connection_file(connection_file)
@@ -80,10 +81,7 @@ function M.start(kernel_name)
 					vim.notify("[Jove] File di connessione trovato, avvio del client Python.", vim.log.levels.INFO)
 					M.start_python_client(kernel_name, connection_file, ipykernel_job_id)
 				else
-					vim.notify(
-						"[Jove] Fallimento nel parsare il file di connessione, anche se esistente.",
-						vim.log.levels.ERROR
-					)
+					vim.notify("[Jove] Fallimento nel parsare il file di connessione.", vim.log.levels.ERROR)
 					vim.fn.jobstop(ipykernel_job_id)
 					status.update_status(kernel_name, "error")
 				end
@@ -91,11 +89,9 @@ function M.start(kernel_name)
 			end
 		end
 
-		-- If not ready, schedule the next check
 		vim.defer_fn(poll_for_connection_file, poll_interval_ms)
 	end
 
-	-- Start the first poll check
 	vim.defer_fn(poll_for_connection_file, poll_interval_ms)
 end
 
@@ -183,10 +179,13 @@ function M.handle_py_client_message(kernel_name, json_line)
 		return
 	end
 
-	if data.type == "status" then
+	local msg_type = data.type
+	local jupyter_msg = data.message
+
+	if msg_type == "status" then
 		if data.message == "connected" then
 			kernel_info.status = "idle"
-			status.update_status(kernel_name, "idle") -- Stato: idle
+			status.update_status(kernel_name, "idle")
 		elseif data.message == "disconnected" then
 			kernel_info.status = "disconnected"
 			status.update_status(kernel_name, "disconnected")
@@ -196,37 +195,39 @@ function M.handle_py_client_message(kernel_name, json_line)
 			end
 			kernels_config[kernel_name] = nil
 			status.remove_kernel(kernel_name)
+		--- NUOVO ---
+		elseif data.message == "kernel_restarted" then
+			vim.notify("Kernel '" .. kernel_name .. "' riavviato con successo.", vim.log.levels.INFO)
+			status.update_status(kernel_name, "idle")
 		end
-	elseif data.type == "iopub" and data.message.header.msg_type == "status" then
-		local exec_state = data.message.content.execution_state -- 'busy' o 'idle'
+	elseif msg_type == "iopub" and jupyter_msg.header.msg_type == "status" then
+		local exec_state = jupyter_msg.content.execution_state
 		kernel_info.status = exec_state
-		status.update_status(kernel_name, exec_state) -- Aggiorna lo stato
+		status.update_status(kernel_name, exec_state)
 		if exec_state == "idle" then
 			kernel_info.current_execution_bufnr = nil
 			kernel_info.current_execution_row = nil
 		end
-	elseif data.type == "error" then
+	elseif msg_type == "error" then
 		vim.notify("Errore dal client Python (" .. kernel_name .. "): " .. data.message, vim.log.levels.ERROR)
 		status.update_status(kernel_name, "error")
-	else
-		-- Gestione altri messaggi (output, etc.)
-		local handlers = {
-			execute_input = "render_input_prompt",
-			stream = "render_stream",
-			execute_result = "render_execute_result",
-			display_data = "render_execute_result",
-			error = "render_error",
-		}
-		if data.type == "iopub" and kernel_info.current_execution_bufnr then
-			local msg_type = data.message.header.msg_type
-			local handler_name = handlers[msg_type]
-			if handler_name then
-				require("jove.output")[handler_name](
-					kernel_info.current_execution_bufnr,
-					kernel_info.current_execution_row,
-					data.message
-				)
-			end
+	--- NUOVO: Gestione risposte dal canale SHELL ---
+	elseif msg_type == "shell" then
+		local shell_msg_type = jupyter_msg.header.msg_type
+		if shell_msg_type == "inspect_reply" then
+			output.render_inspect_reply(jupyter_msg)
+		elseif shell_msg_type == "history_reply" then
+			output.render_history_reply(jupyter_msg)
+		elseif shell_msg_type == "interrupt_reply" then
+			vim.notify("Kernel interrotto con successo.", vim.log.levels.INFO)
+			status.update_status(kernel_name, "idle")
+		end
+	--- GESTIONE MESSAGGI IOPUB ESISTENTE ---
+	elseif msg_type == "iopub" and kernel_info.current_execution_bufnr then
+		local iopub_msg_type = jupyter_msg.header.msg_type
+		local handler_name = output.iopub_handlers[iopub_msg_type]
+		if handler_name then
+			handler_name(kernel_info.current_execution_bufnr, kernel_info.current_execution_row, jupyter_msg)
 		end
 	end
 end
@@ -238,25 +239,51 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 		return
 	end
 	if kernel_info.status ~= "idle" then
-		vim.notify(
-			"Kernel '" .. kernel_name .. "' è occupato (stato: " .. kernel_info.status .. ").",
-			vim.log.levels.WARN
-		)
+		vim.notify("Kernel '" .. kernel_name .. "' è occupato.", vim.log.levels.WARN)
 		return
 	end
 
 	kernel_info.current_execution_bufnr = bufnr
 	kernel_info.current_execution_row = row
 	kernel_info.status = "busy"
-	status.update_status(kernel_name, "busy") -- Stato: busy
+	status.update_status(kernel_name, "busy")
 
 	M.send_to_py_client(kernel_name, {
 		command = "execute",
-		payload = require("jove.message").create_execute_request(cell_content),
+		payload = message.create_execute_request(cell_content),
 	})
 end
 
--- Funzioni di utility non modificate (parse_connection_file, send_to_py_client, etc.)
+--- NUOVO ---
+function M.inspect(kernel_name, code, cursor_pos)
+	M.send_to_py_client(kernel_name, {
+		command = "inspect",
+		payload = {
+			content = message.create_inspect_request(code, cursor_pos).content,
+		},
+	})
+end
+
+--- NUOVO ---
+function M.interrupt(kernel_name)
+	M.send_to_py_client(kernel_name, { command = "interrupt" })
+end
+
+--- NUOVO ---
+function M.restart(kernel_name)
+	M.send_to_py_client(kernel_name, { command = "restart" })
+end
+
+--- NUOVO ---
+function M.history(kernel_name)
+	M.send_to_py_client(kernel_name, {
+		command = "history",
+		payload = {
+			content = message.create_history_request().content,
+		},
+	})
+end
+
 function M.stop_python_client(kernel_name, reason)
 	local kernel_info = kernels_config[kernel_name]
 	if kernel_info and kernel_info.py_client_job_id then

@@ -7,35 +7,40 @@ local kernels_config = config.kernels
 local kernel = require("jove.kernel")
 local status = require("jove.status")
 
+--- Ottiene il nome del kernel attivo per il buffer corrente.
+local function get_active_kernel_name()
+	local kernel_name = vim.b.jove_active_kernel
+	if not kernel_name then
+		vim.notify("Nessun kernel attivo. Avviare un kernel con :JoveStart <nome_kernel>", vim.log.levels.WARN)
+		return nil
+	end
+	return kernel_name
+end
+
 -- Comando per avviare un kernel
 function M.start_kernel_cmd(args)
-	vim.notify("starting: " .. vim.inspect(config))
-	vim.notify("Checking for kernels. kernels is: " .. vim.inspect(kernels_config))
 	local kernel_name = args.fargs[1]
 	if not kernel_name or kernel_name == "" then
 		vim.notify("Nome del kernel non specificato.", vim.log.levels.ERROR)
-		vim.api.nvim_err_writeln("Errore: specificare un nome per il kernel. Esempio: :JoveStart python")
 		return
 	end
 
 	if not kernels_config or not kernels_config[kernel_name] then
-		local err_msg = "Configurazione non trovata per il kernel: " .. kernel_name .. ". Verificare kernels."
+		local err_msg = "Configurazione non trovata per il kernel: " .. kernel_name
 		vim.notify(err_msg, vim.log.levels.ERROR)
-		vim.api.nvim_err_writeln("Errore: " .. err_msg)
 		return
 	end
 
 	kernel.start(kernel_name)
 	vim.b.jove_active_kernel = kernel_name -- Use buffer-local variable
-	status.set_active_kernel(kernel_name) -- Notifica al modulo di stato
+	status.set_active_kernel(kernel_name)
 	vim.notify("Kernel '" .. kernel_name .. "' avviato per il buffer corrente.", vim.log.levels.INFO)
 end
 
 -- Comando per eseguire codice
 function M.execute_code_cmd(args)
-	local active_kernel_name = vim.b.jove_active_kernel
+	local active_kernel_name = get_active_kernel_name()
 	if not active_kernel_name then
-		vim.notify("Nessun kernel attivo. Avviare un kernel con :JoveStart <nome_kernel>", vim.log.levels.WARN)
 		return
 	end
 
@@ -57,6 +62,60 @@ function M.execute_code_cmd(args)
 	else
 		vim.notify("Nessun codice da eseguire.", vim.log.levels.INFO)
 	end
+end
+
+--- NUOVO ---
+-- Comando per ispezionare un oggetto
+function M.inspect_cmd()
+	local active_kernel_name = get_active_kernel_name()
+	if not active_kernel_name then
+		return
+	end
+
+	local code = vim.api.nvim_get_current_line()
+	local cursor_pos = vim.api.nvim_win_get_cursor(0)[2] -- 0-indexed column
+
+	kernel.inspect(active_kernel_name, code, cursor_pos)
+end
+
+--- NUOVO ---
+-- Comando per interrompere il kernel
+function M.interrupt_cmd()
+	local active_kernel_name = get_active_kernel_name()
+	if not active_kernel_name then
+		return
+	end
+	vim.notify("Invio richiesta di interruzione al kernel '" .. active_kernel_name .. "'...", vim.log.levels.INFO)
+	kernel.interrupt(active_kernel_name)
+end
+
+--- NUOVO ---
+-- Comando per riavviare il kernel
+function M.restart_cmd()
+	local active_kernel_name = get_active_kernel_name()
+	if not active_kernel_name then
+		return
+	end
+
+	vim.ui.confirm("Sei sicuro di voler riavviare il kernel '" .. active_kernel_name .. "'? Lo stato verrà perso.", {
+		"Riavvia",
+		"Annulla",
+	}, function(choice)
+		if choice == "Riavvia" then
+			vim.notify("Riavvio del kernel '" .. active_kernel_name .. "'...", vim.log.levels.INFO)
+			kernel.restart(active_kernel_name)
+		end
+	end)
+end
+
+--- NUOVO ---
+-- Comando per visualizzare la cronologia
+function M.history_cmd()
+	local active_kernel_name = get_active_kernel_name()
+	if not active_kernel_name then
+		return
+	end
+	kernel.history(active_kernel_name)
 end
 
 -- Funzione per la statusline
@@ -92,7 +151,7 @@ end
 
 vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	nargs = 1,
-	complete = function(arglead, cmdline, cursorpos)
+	complete = function(arglead)
 		if kernels_config then
 			local completions = {}
 			for name, _ in pairs(kernels_config) do
@@ -120,6 +179,30 @@ vim.api.nvim_create_user_command("JoveStatus", M.status_cmd, {
 vim.api.nvim_create_user_command("JoveList", M.list_kernels_cmd, {
 	nargs = 0,
 	desc = "Elenca i kernel gestiti con informazioni di debug (job ID, etc.).",
+})
+
+--- NUOVO ---
+vim.api.nvim_create_user_command("JoveInspect", M.inspect_cmd, {
+	nargs = 0,
+	desc = "Ispeziona l'oggetto sotto il cursore nel kernel attivo.",
+})
+
+--- NUOVO ---
+vim.api.nvim_create_user_command("JoveInterrupt", M.interrupt_cmd, {
+	nargs = 0,
+	desc = "Invia una richiesta di interruzione al kernel attivo.",
+})
+
+--- NUOVO ---
+vim.api.nvim_create_user_command("JoveRestart", M.restart_cmd, {
+	nargs = 0,
+	desc = "Riavvia il kernel attivo.",
+})
+
+--- NUOVO ---
+vim.api.nvim_create_user_command("JoveHistory", M.history_cmd, {
+	nargs = 0,
+	desc = "Mostra la cronologia di esecuzione del kernel attivo.",
 })
 
 return M

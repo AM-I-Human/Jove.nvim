@@ -75,11 +75,8 @@ function M.setup(user_opts)
 	vim.notify("[Jove] setup complete.", vim.log.levels.INFO)
 end
 
--- (Optional but recommended) A getter function for other modules
 function M.get_config()
 	return config
 end
 
--- 3. Carica i comandi del plugin per renderli disponibili.
--- Questo semplifica la configurazione per l'utente, che dovrà solo fare `require('jove')`.
 return M

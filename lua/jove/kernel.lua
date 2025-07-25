@@ -7,6 +7,22 @@ local status = require("jove.status")
 local message = require("jove.message")
 local output = require("jove.output")
 
+local function get_plugin_root()
+	-- Get the path of the current Lua source file
+	function get_plugin_path(plugin_name)
+		local paths = vim.api.nvim_list_runtime_paths()
+		for _, path in ipairs(paths) do
+			if path:match(plugin_name .. "$") then
+				return path
+			end
+		end
+		return "."
+	end
+
+	local my_plugin_path = get_plugin_path("Jove.nvim")
+	return my_plugin_path
+end
+
 function M.start(kernel_name)
 	if not kernel_name then
 		vim.notify("Kernel name is nil", vim.log.levels.ERROR)
@@ -78,7 +94,7 @@ function M.start(kernel_name)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
-	local py_client_script = vim.g.jove_plugin_root .. "/python/py_kernel_client.py"
+	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
 	local executable = (kernels_config[kernel_name] or {}).executable or "python"
 	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path }
 

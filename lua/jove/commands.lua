@@ -1,8 +1,8 @@
 -- lua/jove/commands.lua
 
 local M = {}
-local config = require("jove").get_config()
-local kernels_config = config.kernels
+local config = require("jove")
+local status = require("jove.status")
 
 local kernel = require("jove.kernel")
 local status = require("jove.status")
@@ -25,6 +25,7 @@ function M.start_kernel_cmd(args)
 		return
 	end
 
+	local kernels_config = config.get_config().kernels
 	if not kernels_config or not kernels_config[kernel_name] then
 		local err_msg = "Configurazione non trovata per il kernel: " .. kernel_name
 		vim.notify(err_msg, vim.log.levels.ERROR)
@@ -151,6 +152,7 @@ end
 vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 	nargs = 1,
 	complete = function(arglead)
+		local kernels_config = config.get_config().kernels
 		if kernels_config then
 			local completions = {}
 			for name, _ in pairs(kernels_config) do

@@ -1,8 +1,7 @@
 -- file: lua/jove/kernel.lua
 
 local M = {}
-local config = require("jove").get_config()
-local kernels_config = config.kernels
+local config_module = require("jove")
 local status = require("jove.status")
 local message = require("jove.message")
 local output = require("jove.output")
@@ -29,6 +28,7 @@ function M.start(kernel_name)
 		return
 	end
 
+	local kernels_config = config_module.get_config().kernels
 	if kernels_config[kernel_name] and kernels_config[kernel_name].py_client_job_id then
 		vim.notify("Kernel client for '" .. kernel_name .. "' is already running or starting.", vim.log.levels.WARN)
 		return
@@ -94,6 +94,7 @@ function M.start(kernel_name)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
+	local kernels_config = config_module.get_config().kernels
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
 	local executable = (kernels_config[kernel_name] or {}).executable or "python"
 	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path }
@@ -134,6 +135,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 end
 
 function M.handle_py_client_message(kernel_name, json_line)
+	local kernels_config = config_module.get_config().kernels
 	if not kernels_config[kernel_name] then
 		return
 	end
@@ -178,6 +180,7 @@ function M.handle_py_client_message(kernel_name, json_line)
 end
 
 function M.execute_cell(kernel_name, cell_content, bufnr, row)
+	local kernels_config = config_module.get_config().kernels
 	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
 		return
@@ -206,6 +209,7 @@ end
 
 --- CORREZIONE: Logica di riavvio "stop and start" non distruttiva ---
 function M.restart(kernel_name)
+	local kernels_config = config_module.get_config().kernels
 	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info then
 		vim.notify("Impossibile riavviare un kernel non esistente: " .. kernel_name, vim.log.levels.WARN)
@@ -245,6 +249,7 @@ function M.history(kernel_name)
 end
 
 function M.send_to_py_client(kernel_name, data_table)
+	local kernels_config = config_module.get_config().kernels
 	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
 		return
@@ -266,6 +271,7 @@ function M.parse_connection_file(filename)
 end
 
 function M.list_running_kernels()
+	local kernels_config = config_module.get_config().kernels
 	local running = {}
 	if not next(kernels_config) then
 		return { "Nessun kernel gestito al momento." }
@@ -288,6 +294,7 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 	group = "JoveCleanup",
 	pattern = "*",
 	callback = function()
+		local kernels_config = config_module.get_config().kernels
 		if kernels_config and next(kernels_config) ~= nil then
 			for name, info in pairs(kernels_config) do
 				if info.py_client_job_id then

@@ -70,8 +70,6 @@ function M.setup(user_opts)
 	vim.g.jove_plugin_root = vim.fn.fnamemodify(current_file_path, ":h:h")
 	vim.notify("[Jove] Plugin root set to: " .. vim.g.jove_plugin_root, vim.log.levels.INFO)
 
-	-- 5. Load the commands AFTER configuration is complete.
-	require("jove.commands")
 	vim.notify("[Jove] setup complete.", vim.log.levels.INFO)
 end
 

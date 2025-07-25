@@ -1,6 +1,20 @@
 -- lua/jove/output.lua
 local M = {}
 
+--- Pulisce una stringa dai codici di escape ANSI e da altri caratteri non stampabili.
+-- @param str La stringa da pulire.
+-- @return La stringa pulita.
+local function clean_string(str)
+	if not str then
+		return ""
+	end
+	-- Rimuove i codici di colore/stile ANSI (es. ^[[31m)
+	local cleaned = string.gsub(str, "\x1b%[[%d;]*m", "")
+	-- Rimuove i caratteri nulli (^@) che a volte vengono inseriti
+	cleaned = string.gsub(cleaned, "\0", "")
+	return cleaned
+end
+
 local NS_ID = vim.api.nvim_create_namespace("jove_output")
 local line_marks = {}
 local line_prompt_marks = {}
@@ -45,7 +59,8 @@ function M.render_stream(bufnr, row, jupyter_msg)
 	if not text or text == "" then
 		return
 	end
-	local lines = vim.split(text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
+	local cleaned_text = clean_string(text)
+	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
 	if #lines > 0 then
 		render_output(bufnr, row, lines, { highlight = "Comment" })
 	end
@@ -55,7 +70,8 @@ function M.render_execute_result(bufnr, row, jupyter_msg)
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	local exec_count = jupyter_msg.content.execution_count
 	if text_plain and text_plain ~= "" then
-		local lines = vim.split(text_plain:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
+		local cleaned_text = clean_string(text_plain)
+		local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
 		if #lines > 0 then
 			if exec_count then
 				lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
@@ -88,7 +104,11 @@ end
 function M.render_error(bufnr, row, jupyter_msg)
 	local traceback = jupyter_msg.content.traceback
 	if traceback then
-		render_output(bufnr, row, traceback, { highlight = "ErrorMsg" })
+		local cleaned_traceback = {}
+		for _, line in ipairs(traceback) do
+			table.insert(cleaned_traceback, clean_string(line))
+		end
+		render_output(bufnr, row, cleaned_traceback, { highlight = "ErrorMsg" })
 	end
 end
 
@@ -106,7 +126,8 @@ function M.render_inspect_reply(jupyter_msg)
 		return
 	end
 
-	local lines = vim.split(docstring, "\n")
+	local cleaned_docstring = clean_string(docstring)
+	local lines = vim.split(cleaned_docstring, "\n")
 
 	-- Crea un buffer temporaneo per la finestra flottante
 	local buf = vim.api.nvim_create_buf(false, true)

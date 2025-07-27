@@ -45,15 +45,21 @@ function M.show()
 		return
 	end
 
-	-- Crea un buffer temporaneo per il contenuto del log
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.bo[buf].buftype = "nofile"
-	vim.bo[buf].bufhidden = "hide"
-	vim.bo[buf].swapfile = false
-	vim.api.nvim_buf_set_name(buf, "JoveLog")
+	-- Cerca un buffer esistente o creane uno nuovo
+	local buf = vim.fn.bufnr("JoveLog")
+	if buf == -1 then
+		buf = vim.api.nvim_create_buf(false, true)
+		vim.bo[buf].buftype = "nofile"
+		vim.bo[buf].bufhidden = "hide"
+		vim.bo[buf].swapfile = false
+		vim.api.nvim_buf_set_name(buf, "JoveLog")
+		vim.bo[buf].filetype = "log"
+	end
+
+	-- Aggiorna il contenuto del buffer
+	vim.bo[buf].readonly = false
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, log_messages)
 	vim.bo[buf].readonly = true
-	vim.bo[buf].filetype = "log"
 
 	-- Calcola dimensioni e posizione della finestra
 	local width = math.floor(vim.o.columns * 0.5)

@@ -26,7 +26,7 @@ local defaults = {
 		python = {
 			cmd = "python -m ipykernel_launcher -f {connection_file}",
 			executable = "python",
-			this_is_the_default = true,
+			filetypes = { "python" },
 		},
 	},
 }

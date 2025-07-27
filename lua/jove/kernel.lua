@@ -22,7 +22,7 @@ local function get_plugin_root()
 	return my_plugin_path
 end
 
-function M.start(kernel_name)
+function M.start(kernel_name, on_ready_callback)
 	if not kernel_name then
 		vim.notify("Kernel name is nil", vim.log.levels.ERROR)
 		return
@@ -85,7 +85,7 @@ function M.start(kernel_name)
 		end
 		attempts = attempts - 1
 		if vim.fn.filereadable(connection_file) == 1 and #vim.fn.readfile(connection_file) > 0 then
-			M.start_python_client(kernel_name, connection_file, ipykernel_job_id)
+			M.start_python_client(kernel_name, connection_file, ipykernel_job_id, on_ready_callback)
 			return
 		end
 		vim.defer_fn(poll_for_connection_file, poll_interval_ms)
@@ -93,7 +93,7 @@ function M.start(kernel_name)
 	vim.defer_fn(poll_for_connection_file, poll_interval_ms)
 end
 
-function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref)
+function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref, on_ready_callback)
 	local kernels_config = config_module.get_config().kernels
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
 	local executable = (kernels_config[kernel_name] or {}).executable or "python"
@@ -103,6 +103,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	kernels_config[kernel_name] = kernels_config[kernel_name] or {}
 	kernels_config[kernel_name].ipykernel_job_id = ipykernel_job_id_ref
 	kernels_config[kernel_name].py_client_job_id = nil
+	kernels_config[kernel_name].on_ready_callback = on_ready_callback
 
 	local py_job_id = vim.fn.jobstart(py_client_cmd, {
 		stdin = "pipe",
@@ -151,6 +152,13 @@ function M.handle_py_client_message(kernel_name, json_line)
 
 	if msg_type == "status" and data.message == "connected" then
 		status.update_status(kernel_name, "idle")
+		local k_config = kernels_config[kernel_name]
+		if k_config and k_config.on_ready_callback then
+			vim.schedule(function()
+				k_config.on_ready_callback(kernel_name)
+			end)
+			k_config.on_ready_callback = nil -- Esegui una sola volta
+		end
 	elseif msg_type == "iopub" and jupyter_msg.header.msg_type == "status" then
 		status.update_status(kernel_name, jupyter_msg.content.execution_state)
 	elseif msg_type == "error" then

@@ -17,6 +17,66 @@ local function get_active_kernel_name()
 	return kernel_name
 end
 
+--- Cerca di ottenere un kernel attivo. Se non ce n'è uno, ne avvia uno basato
+--- sul filetype e poi esegue la callback.
+local function run_with_kernel(callback)
+	local active_kernel_name = vim.b.jove_active_kernel
+	if active_kernel_name then
+		-- Se il kernel è attivo e idle, esegui subito
+		if status.get_status(active_kernel_name) == "idle" then
+			callback(active_kernel_name)
+		else
+			vim.notify(
+				"Kernel '"
+					.. active_kernel_name
+					.. "' non è pronto (stato: "
+					.. (status.get_status(active_kernel_name) or "sconosciuto")
+					.. ").",
+				vim.log.levels.WARN
+			)
+		end
+		return
+	end
+
+	-- Nessun kernel attivo per questo buffer, cerchiamone uno
+	local filetype = vim.bo.filetype
+	local kernels_config = config.get_config().kernels
+	local found_kernel_name
+	if kernels_config then
+		for name, k_config in pairs(kernels_config) do
+			if k_config and k_config.filetypes then
+				for _, ft in ipairs(k_config.filetypes) do
+					if ft == filetype then
+						found_kernel_name = name
+						break
+					end
+				end
+			end
+			if found_kernel_name then
+				break
+			end
+		end
+	end
+
+	if found_kernel_name then
+		vim.notify(
+			"Nessun kernel attivo. Avvio di '" .. found_kernel_name .. "' per filetype '" .. filetype .. "'...",
+			vim.log.levels.INFO
+		)
+		kernel.start(found_kernel_name, function(started_kernel_name)
+			vim.b.jove_active_kernel = started_kernel_name
+			status.set_active_kernel(started_kernel_name)
+			vim.notify("Kernel '" .. started_kernel_name .. "' pronto. Esecuzione del comando.", vim.log.levels.INFO)
+			callback(started_kernel_name)
+		end)
+	else
+		vim.notify(
+			"Nessun kernel attivo per il buffer e nessun kernel trovato per filetype '" .. filetype .. "'.",
+			vim.log.levels.WARN
+		)
+	end
+end
+
 -- Comando per avviare un kernel
 function M.start_kernel_cmd(args)
 	local kernel_name = args.fargs[1]
@@ -40,45 +100,39 @@ end
 
 -- Comando per eseguire codice
 function M.execute_code_cmd(args)
-	local active_kernel_name = get_active_kernel_name()
-	if not active_kernel_name then
-		return
-	end
+	run_with_kernel(function(active_kernel_name)
+		local code_to_execute
+		local bufnr = vim.api.nvim_get_current_buf()
+		local start_row, end_row
 
-	local code_to_execute
-	local bufnr = vim.api.nvim_get_current_buf()
-	local start_row, end_row
+		if args.range == 0 then -- Nessuna selezione visuale, esegui riga corrente
+			start_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+			end_row = start_row
+			code_to_execute = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)[1]
+		else -- Selezione visuale
+			start_row = args.line1 - 1
+			end_row = args.line2 - 1
+			local lines = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)
+			code_to_execute = table.concat(lines, "\n")
+		end
 
-	if args.range == 0 then -- Nessuna selezione visuale, esegui riga corrente
-		start_row = vim.api.nvim_win_get_cursor(0)[1] - 1
-		end_row = start_row
-		code_to_execute = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)[1]
-	else -- Selezione visuale
-		start_row = args.line1 - 1
-		end_row = args.line2 - 1
-		local lines = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)
-		code_to_execute = table.concat(lines, "\n")
-	end
-
-	if code_to_execute and string.gsub(code_to_execute, "%s", "") ~= "" then
-		kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
-	else
-		vim.notify("Nessun codice da eseguire.", vim.log.levels.INFO)
-	end
+		if code_to_execute and string.gsub(code_to_execute, "%s", "") ~= "" then
+			kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
+		else
+			vim.notify("Nessun codice da eseguire.", vim.log.levels.INFO)
+		end
+	end)
 end
 
 -- Comando per ispezionare un oggetto
 function M.inspect_cmd()
-	local active_kernel_name = get_active_kernel_name()
-	if not active_kernel_name then
-		return
-	end
+	run_with_kernel(function(active_kernel_name)
+		local code = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+		local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
+		local cursor_pos_bytes = vim.fn.line2byte(cursor_row) + cursor_col - 1
 
-	local code = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-	local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
-	local cursor_pos_bytes = vim.fn.line2byte(cursor_row) + cursor_col - 1
-
-	kernel.inspect(active_kernel_name, code, cursor_pos_bytes)
+		kernel.inspect(active_kernel_name, code, cursor_pos_bytes)
+	end)
 end
 
 -- Comando per interrompere il kernel
@@ -111,11 +165,9 @@ end
 
 -- Comando per visualizzare la cronologia
 function M.history_cmd()
-	local active_kernel_name = get_active_kernel_name()
-	if not active_kernel_name then
-		return
-	end
-	kernel.history(active_kernel_name)
+	run_with_kernel(function(active_kernel_name)
+		kernel.history(active_kernel_name)
+	end)
 end
 
 -- Funzione per la statusline

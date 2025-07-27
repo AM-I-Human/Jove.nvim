@@ -59,7 +59,7 @@ function M.show()
 	local width = math.floor(vim.o.columns * 0.5)
 	local height = math.floor(vim.o.lines * 0.4)
 	local row = vim.o.lines - height -- In basso
-	local col = 0 -- A sinistra
+	local col = vim.o.columns - width -- A destra
 
 	-- Apri la finestra flottante
 	vim.api.nvim_open_win(buf, true, {

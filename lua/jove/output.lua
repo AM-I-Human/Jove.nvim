@@ -1,6 +1,6 @@
 -- lua/jove/output.lua
 local M = {}
-
+local log = require("jove.log")
 --- Pulisce una stringa dai codici di escape ANSI e da altri caratteri non stampabili.
 -- @param str La stringa da pulire.
 -- @return La stringa pulita.
@@ -145,13 +145,13 @@ end
 --- Mostra la risposta di una inspect_request in una finestra flottante.
 function M.render_inspect_reply(jupyter_msg)
 	if jupyter_msg.content.status ~= "ok" or not jupyter_msg.content.found then
-		vim.notify("Oggetto non trovato.", vim.log.levels.INFO)
+		log.add(vim.log.levels.INFO, "Oggetto non trovato.")
 		return
 	end
 
 	local docstring = jupyter_msg.content.data["text/plain"]
 	if not docstring or docstring == "" then
-		vim.notify("Nessuna documentazione disponibile per questo oggetto.", vim.log.levels.INFO)
+		log.add(vim.log.levels.INFO, "Nessuna documentazione disponibile per questo oggetto.")
 		return
 	end
 
@@ -179,17 +179,16 @@ function M.render_inspect_reply(jupyter_msg)
 	})
 end
 
---- NUOVO ---
 --- Mostra la risposta di una history_request in un nuovo buffer.
 function M.render_history_reply(jupyter_msg)
 	if jupyter_msg.content.status ~= "ok" then
-		vim.notify("Impossibile recuperare la cronologia.", vim.log.levels.ERROR)
+		log.add(vim.log.levels.ERROR, "Impossibile recuperare la cronologia.")
 		return
 	end
 
 	local history = jupyter_msg.content.history
 	if not history or #history == 0 then
-		vim.notify("Nessuna cronologia trovata per questa sessione.", vim.log.levels.INFO)
+		log.add(vim.log.levels.INFO, "Nessuna cronologia trovata per questa sessione.")
 		return
 	end
 

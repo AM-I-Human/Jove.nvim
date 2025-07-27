@@ -38,7 +38,6 @@ local M = {}
 local current_file_path = vim.fn.expand("<sfile>:p")
 if current_file_path and current_file_path ~= "" and current_file_path ~= "<sfile>:p" then
 	vim.g.jove_plugin_root = vim.fn.fnamemodify(current_file_path, ":h:h")
-	vim.notify("[Jove] Plugin root impostato su: " .. vim.g.jove_plugin_root, vim.log.levels.INFO)
 else
 	-- Fallback nel caso <sfile> non funzioni come previsto (molto improbabile per un file .lua)
 	local path_info_fallback = debug.getinfo(1, "S")
@@ -46,31 +45,20 @@ else
 		local script_path_fallback = path_info_fallback.source:sub(2)
 		local plugin_lua_dir_fallback = vim.fn.fnamemodify(script_path_fallback, ":h")
 		vim.g.jove_plugin_root = vim.fn.fnamemodify(plugin_lua_dir_fallback, ":h")
-		vim.notify("[Jove] Plugin root (fallback debug.getinfo): " .. vim.g.jove_plugin_root, vim.log.levels.INFO)
-	else
-		vim.notify(
-			"[Jove] CRITICO: Impossibile determinare il percorso radice del plugin. <sfile> ha restituito: "
-				.. current_file_path
-				.. ", debug.getinfo().source: "
-				.. vim.inspect(path_info_fallback and path_info_fallback.source or "nil"),
-			vim.log.levels.ERROR
-		)
 	end
 end
 
 -- The main setup function. This will be called from init.lua.
 function M.setup(user_opts)
-	vim.notify("SetUp method")
+	local log = require("jove.log")
+	log.add(vim.log.levels.INFO, "Avvio configurazione Jove...")
+
 	config = deep_merge(defaults, user_opts)
 
-	vim.notify("New config" .. vim.inspect(config))
+	log.add(vim.log.levels.DEBUG, "Configurazione utente applicata: " .. vim.inspect(user_opts))
+	log.add(vim.log.levels.DEBUG, "Configurazione finale: " .. vim.inspect(config))
 
-	-- 4. Set the plugin root path
-	local current_file_path = vim.fn.expand("<sfile>:p")
-	vim.g.jove_plugin_root = vim.fn.fnamemodify(current_file_path, ":h:h")
-	vim.notify("[Jove] Plugin root set to: " .. vim.g.jove_plugin_root, vim.log.levels.INFO)
-
-	vim.notify("[Jove] setup complete.", vim.log.levels.INFO)
+	log.add(vim.log.levels.INFO, "[Jove] setup completato.")
 end
 
 function M.get_config()

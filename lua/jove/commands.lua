@@ -46,20 +46,22 @@ function M.execute_code_cmd(args)
 	end
 
 	local code_to_execute
+	local bufnr = vim.api.nvim_get_current_buf()
+	local start_row, end_row
+
 	if args.range == 0 then -- Nessuna selezione visuale, esegui riga corrente
-		local current_line_nr = vim.api.nvim_win_get_cursor(0)[1]
-		code_to_execute = vim.api.nvim_buf_get_lines(0, current_line_nr - 1, current_line_nr, false)[1]
+		start_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+		end_row = start_row
+		code_to_execute = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)[1]
 	else -- Selezione visuale
-		local first_line = args.line1
-		local last_line = args.line2
-		local lines = vim.api.nvim_buf_get_lines(0, first_line - 1, last_line, false)
+		start_row = args.line1 - 1
+		end_row = args.line2 - 1
+		local lines = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)
 		code_to_execute = table.concat(lines, "\n")
 	end
 
 	if code_to_execute and string.gsub(code_to_execute, "%s", "") ~= "" then
-		local bufnr = vim.api.nvim_get_current_buf()
-		local row = (args.range == 0) and (vim.api.nvim_win_get_cursor(0)[1] - 1) or (args.line1 - 1)
-		kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, row)
+		kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
 	else
 		vim.notify("Nessun codice da eseguire.", vim.log.levels.INFO)
 	end

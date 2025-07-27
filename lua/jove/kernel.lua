@@ -170,16 +170,18 @@ function M.handle_py_client_message(kernel_name, json_line)
 		local iopub_msg_type = jupyter_msg.header.msg_type
 		local handler = output.iopub_handlers[iopub_msg_type]
 		if handler then
+			local k_info = kernels_config[kernel_name]
 			handler(
-				kernels_config[kernel_name].current_execution_bufnr,
-				kernels_config[kernel_name].current_execution_row,
+				k_info.current_execution_bufnr,
+				k_info.current_execution_start_row,
+				k_info.current_execution_end_row,
 				jupyter_msg
 			)
 		end
 	end
 end
 
-function M.execute_cell(kernel_name, cell_content, bufnr, row)
+function M.execute_cell(kernel_name, cell_content, bufnr, start_row, end_row)
 	local kernels_config = config_module.get_config().kernels
 	local kernel_info = kernels_config[kernel_name]
 	if not kernel_info or not kernel_info.py_client_job_id then
@@ -191,7 +193,8 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 		return
 	end
 	kernel_info.current_execution_bufnr = bufnr
-	kernel_info.current_execution_row = row
+	kernel_info.current_execution_start_row = start_row
+	kernel_info.current_execution_end_row = end_row
 	status.update_status(kernel_name, "busy")
 	M.send_to_py_client(kernel_name, { command = "execute", payload = message.create_execute_request(cell_content) })
 end

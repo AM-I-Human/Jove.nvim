@@ -19,24 +19,28 @@ local NS_ID = vim.api.nvim_create_namespace("jove_output")
 local line_marks = {}
 local line_prompt_marks = {}
 
-local function clear_previous_prompt(bufnr, row)
-	if line_prompt_marks[bufnr] and line_prompt_marks[bufnr][row] then
-		pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, line_prompt_marks[bufnr][row])
-		line_prompt_marks[bufnr][row] = nil
-	end
-end
-
-local function clear_previous_output(bufnr, row)
-	if line_marks[bufnr] and line_marks[bufnr][row] then
-		pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, line_marks[bufnr][row])
-		line_marks[bufnr][row] = nil
+local function clear_range(bufnr, start_row, end_row)
+	-- Clear all extmarks (prompts and outputs) in the given range.
+	-- `end_row + 1` is because the range is exclusive for the end line.
+	vim.api.nvim_buf_clear_namespace(bufnr, NS_ID, start_row, end_row + 1)
+	for row = start_row, end_row do
+		if line_marks[bufnr] then
+			line_marks[bufnr][row] = nil
+		end
+		if line_prompt_marks[bufnr] then
+			line_prompt_marks[bufnr][row] = nil
+		end
 	end
 end
 
 local function render_output(bufnr, row, text_lines, opts)
 	opts = opts or {}
 	local highlight = opts.highlight or "Comment"
-	clear_previous_output(bufnr, row)
+	-- Clear previous output on the target line
+	if line_marks[bufnr] and line_marks[bufnr][row] then
+		pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, line_marks[bufnr][row])
+		line_marks[bufnr][row] = nil
+	end
 	if not text_lines or #text_lines == 0 then
 		return
 	end
@@ -54,7 +58,7 @@ local function render_output(bufnr, row, text_lines, opts)
 	line_marks[bufnr][row] = mark_id
 end
 
-function M.render_stream(bufnr, row, jupyter_msg)
+function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 	local text = jupyter_msg.content.text
 	if not text or text == "" then
 		return
@@ -62,11 +66,11 @@ function M.render_stream(bufnr, row, jupyter_msg)
 	local cleaned_text = clean_string(text)
 	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
 	if #lines > 0 then
-		render_output(bufnr, row, lines, { highlight = "Comment" })
+		render_output(bufnr, end_row, lines, { highlight = "Comment" })
 	end
 end
 
-function M.render_execute_result(bufnr, row, jupyter_msg)
+function M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	local exec_count = jupyter_msg.content.execution_count
 	if text_plain and text_plain ~= "" then
@@ -76,39 +80,64 @@ function M.render_execute_result(bufnr, row, jupyter_msg)
 			if exec_count then
 				lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
 			end
-			render_output(bufnr, row, lines, { highlight = "String" })
+			render_output(bufnr, end_row, lines, { highlight = "String" })
 		end
 	end
 end
 
-function M.render_input_prompt(bufnr, row, jupyter_msg)
+function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
 	local exec_count = jupyter_msg.content.execution_count
 	if not exec_count then
 		return
 	end
-	clear_previous_prompt(bufnr, row)
-	local prompt_text = string.format("In[%d]: ", exec_count)
-	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, 0, {
-		virt_text = { { prompt_text, "Question" } },
-		virt_text_pos = "inline",
-		right_gravity = false,
-	})
-	if mark_id then
-		if not line_prompt_marks[bufnr] then
-			line_prompt_marks[bufnr] = {}
+
+	-- Clear all previous marks (prompts and outputs) in the execution range.
+	clear_range(bufnr, start_row, end_row)
+
+	if not line_prompt_marks[bufnr] then
+		line_prompt_marks[bufnr] = {}
+	end
+
+	if start_row == end_row then -- Single-line execution
+		local prompt_text = string.format("In[%d]: ", exec_count)
+		local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, {
+			virt_text = { { prompt_text, "Question" } },
+			virt_text_pos = "inline",
+			right_gravity = false,
+		})
+		line_prompt_marks[bufnr][start_row] = mark_id
+	else -- Multi-line execution
+		local prompt_text = string.format("In[%d]:", exec_count)
+		local bracket_char = " ┃" -- space before for padding
+		local prompt_width = vim.fn.strwidth(prompt_text)
+		local padding = string.rep(" ", prompt_width)
+
+		-- First line: Prompt + Bracket
+		line_prompt_marks[bufnr][start_row] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, {
+			virt_text = { { prompt_text, "Question" }, { bracket_char, "Comment" } },
+			virt_text_pos = "inline",
+			right_gravity = false,
+		})
+
+		-- Subsequent lines: Padding + Bracket
+		for i = start_row + 1, end_row do
+			line_prompt_marks[bufnr][i] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, i, 0, {
+				virt_text = { { padding, "Comment" }, { bracket_char, "Comment" } },
+				virt_text_pos = "inline",
+				right_gravity = false,
+			})
 		end
-		line_prompt_marks[bufnr][row] = mark_id
 	end
 end
 
-function M.render_error(bufnr, row, jupyter_msg)
+function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 	local traceback = jupyter_msg.content.traceback
 	if traceback then
 		local cleaned_traceback = {}
 		for _, line in ipairs(traceback) do
 			table.insert(cleaned_traceback, clean_string(line))
 		end
-		render_output(bufnr, row, cleaned_traceback, { highlight = "ErrorMsg" })
+		render_output(bufnr, end_row, cleaned_traceback, { highlight = "ErrorMsg" })
 	end
 end
 

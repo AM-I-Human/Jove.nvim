@@ -114,7 +114,7 @@ function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
 
 		-- First line: Prompt + Bracket
 		line_prompt_marks[bufnr][start_row] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, {
-			virt_text = { { prompt_text, "Question" }, { bracket_char, "Comment" } },
+			virt_text = { { prompt_text, "Question" }, { bracket_char, "Question" } },
 			virt_text_pos = "inline",
 			right_gravity = false,
 		})
@@ -122,7 +122,7 @@ function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
 		-- Subsequent lines: Padding + Bracket
 		for i = start_row + 1, end_row do
 			line_prompt_marks[bufnr][i] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, i, 0, {
-				virt_text = { { padding, "Comment" }, { bracket_char, "Comment" } },
+				virt_text = { { padding, "Question" }, { bracket_char, "Question" } },
 				virt_text_pos = "inline",
 				right_gravity = false,
 			})

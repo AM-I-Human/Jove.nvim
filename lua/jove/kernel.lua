@@ -154,10 +154,11 @@ function M.handle_py_client_message(kernel_name, json_line)
 		status.update_status(kernel_name, "idle")
 		local k_config = kernels_config[kernel_name]
 		if k_config and k_config.on_ready_callback then
-			vim.schedule(function()
-				k_config.on_ready_callback(kernel_name)
-			end)
+			local cb = k_config.on_ready_callback
 			k_config.on_ready_callback = nil -- Esegui una sola volta
+			vim.schedule(function()
+				cb(kernel_name)
+			end)
 		end
 	elseif msg_type == "iopub" and jupyter_msg.header.msg_type == "status" then
 		status.update_status(kernel_name, jupyter_msg.content.execution_state)

@@ -197,6 +197,7 @@ function M.execute_cell(kernel_name, cell_content, bufnr, row)
 end
 
 function M.inspect(kernel_name, code, cursor_pos)
+	vim.print(vim.inspect(message.create_inspect_request(code, cursor_pos)))
 	M.send_to_py_client(
 		kernel_name,
 		{ command = "inspect", payload = { content = message.create_inspect_request(code, cursor_pos).content } }

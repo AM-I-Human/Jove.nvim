@@ -72,10 +72,8 @@ function M.inspect_cmd()
 		return
 	end
 
-	-- Invia l'intero contenuto del buffer per dare più contesto al kernel
 	local code = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-	-- Calcola la posizione del cursore in byte, come richiesto dal protocollo
-	local cursor_row, cursor_col = table.unpack(vim.api.nvim_win_get_cursor(0))
+	local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
 	local cursor_pos_bytes = vim.fn.line2byte(cursor_row) + cursor_col - 1
 
 	kernel.inspect(active_kernel_name, code, cursor_pos_bytes)

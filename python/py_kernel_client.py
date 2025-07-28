@@ -118,7 +118,7 @@ class KernelClient:
                 }
             )
 
-    def send_inspect_request(self, content):
+    def send_inspect_request(self, content, high_detail=False):
         """Sends an inspect_request to the kernel."""
         log_message(
             f"Sending inspect_request for code: '{content.get('code')}' at pos {content.get('cursor_pos')}"
@@ -127,7 +127,7 @@ class KernelClient:
             self.kc.inspect(
                 code=content.get("code", ""),
                 cursor_pos=content.get("cursor_pos", 0),
-                detail_level=0,
+                detail_level=int(high_detail),
             )
         except Exception as e:
             log_message(f"Error sending inspect_request: {e}")

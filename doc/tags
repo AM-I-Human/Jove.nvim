@@ -1,0 +1,11 @@
+:JoveExecute	jove.txt	/*:JoveExecute*
+:JoveList	jove.txt	/*:JoveList*
+:JoveStart	jove.txt	/*:JoveStart*
+jove-commands	jove.txt	/*jove-commands*
+jove-configuration	jove.txt	/*jove-configuration*
+jove-contents	jove.txt	/*jove-contents*
+jove-installation	jove.txt	/*jove-installation*
+jove-intro	jove.txt	/*jove-intro*
+jove-mappings	jove.txt	/*jove-mappings*
+jove-requirements	jove.txt	/*jove-requirements*
+jove.txt	jove.txt	/*jove.txt*

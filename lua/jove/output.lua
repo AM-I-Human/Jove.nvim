@@ -18,6 +18,7 @@ end
 local NS_ID = vim.api.nvim_create_namespace("jove_output")
 local line_marks = {}
 local line_prompt_marks = {}
+local execution_outputs = {} -- Memorizza le linee di output accumulate per una data esecuzione
 
 local function clear_range(bufnr, start_row, end_row)
 	-- Clear all extmarks (prompts and outputs) in the given range.
@@ -33,21 +34,24 @@ local function clear_range(bufnr, start_row, end_row)
 	end
 end
 
-local function render_output(bufnr, row, text_lines, opts)
-	opts = opts or {}
-	local highlight = opts.highlight or "Comment"
-	-- Clear previous output on the target line
+local function render_accumulated_output(bufnr)
+	local output_data = execution_outputs[bufnr]
+	if not output_data or not output_data.lines or #output_data.lines == 0 then
+		return
+	end
+
+	local row = output_data.end_row
+	local virt_lines_chunks = {}
+	for _, line_info in ipairs(output_data.lines) do
+		table.insert(virt_lines_chunks, { { line_info.text, line_info.highlight } })
+	end
+
+	-- Pulisce l'output composito precedente sulla riga di destinazione
 	if line_marks[bufnr] and line_marks[bufnr][row] then
 		pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, line_marks[bufnr][row])
 		line_marks[bufnr][row] = nil
 	end
-	if not text_lines or #text_lines == 0 then
-		return
-	end
-	local virt_lines_chunks = {}
-	for _, line in ipairs(text_lines) do
-		table.insert(virt_lines_chunks, { { line, highlight } })
-	end
+
 	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, -1, {
 		virt_lines = virt_lines_chunks,
 		virt_lines_above = false,
@@ -58,6 +62,19 @@ local function render_output(bufnr, row, text_lines, opts)
 	line_marks[bufnr][row] = mark_id
 end
 
+local function add_output_lines(bufnr, end_row, text_lines, opts)
+	opts = opts or {}
+	if not execution_outputs[bufnr] then
+		execution_outputs[bufnr] = { end_row = end_row, lines = {} }
+	end
+
+	for _, line in ipairs(text_lines) do
+		table.insert(execution_outputs[bufnr].lines, { text = line, highlight = opts.highlight or "Comment" })
+	end
+
+	render_accumulated_output(bufnr)
+end
+
 function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 	local text = jupyter_msg.content.text
 	if not text or text == "" then
@@ -66,7 +83,7 @@ function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 	local cleaned_text = clean_string(text)
 	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
 	if #lines > 0 then
-		render_output(bufnr, end_row, lines, { highlight = "Comment" })
+		add_output_lines(bufnr, end_row, lines, { highlight = "Comment" })
 	end
 end
 
@@ -80,7 +97,7 @@ function M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
 			if exec_count then
 				lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
 			end
-			render_output(bufnr, end_row, lines, { highlight = "String" })
+			add_output_lines(bufnr, end_row, lines, { highlight = "String" })
 		end
 	end
 end
@@ -93,6 +110,8 @@ function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
 
 	-- Clear all previous marks (prompts and outputs) in the execution range.
 	clear_range(bufnr, start_row, end_row)
+	-- Azzera l'accumulatore di output per la nuova esecuzione
+	execution_outputs[bufnr] = nil
 
 	if not line_prompt_marks[bufnr] then
 		line_prompt_marks[bufnr] = {}
@@ -137,7 +156,7 @@ function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 		for _, line in ipairs(traceback) do
 			table.insert(cleaned_traceback, clean_string(line))
 		end
-		render_output(bufnr, end_row, cleaned_traceback, { highlight = "ErrorMsg" })
+		add_output_lines(bufnr, end_row, cleaned_traceback, { highlight = "ErrorMsg" })
 	end
 end
 

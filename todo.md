@@ -6,10 +6,10 @@ Questo documento delinea le funzionalità e i miglioramenti pianificati per Jove
 
 L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'output dei kernel, includendo la correzione di bug esistenti e l'aggiunta del supporto per media ricchi.
 
-- [ ] **Risolvere la Sovrascrittura dell'Output:**
-  - [ ] Indagare e risolvere il problema per cui l'output di `stream` (es. da `print()`) viene sovrascritto da `execute_result`.
-  - [ ] Rielaborare la logica di gestione dell'output in `lua/jove/output.lua` per accumulare tutti gli output (stream, result, error) di una singola esecuzione di cella invece di sostituirli.
-  - [ ] Assicurarsi che tutte le parti dell'output vengano visualizzate nell'ordine corretto.
+- [x] **Risolvere la Sovrascrittura dell'Output:**
+  - [x] Indagare e risolvere il problema per cui l'output di `stream` (es. da `print()`) viene sovrascritto da `execute_result`.
+  - [x] Rielaborare la logica di gestione dell'output in `lua/jove/output.lua` per accumulare tutti gli output (stream, result, error) di una singola esecuzione di cella invece di sostituirli.
+  - [x] Assicurarsi che tutte le parti dell'output vengano visualizzate nell'ordine corretto.
 
 - [ ] **Aggiungere il Supporto per l'Output HTML (Approccio Ibrido):**
   - [ ] Aggiornare i gestori `iopub` per processare `display_data` e `execute_result` contenenti `text/html`.

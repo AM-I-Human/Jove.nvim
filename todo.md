@@ -27,11 +27,15 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
   - [ ] Implementare la decodifica base64 per i dati delle immagini (usando `vim.fn.base64decode`).
   - [ ] Implementare una funzione per salvare i dati dell'immagine decodificata in un file temporaneo.
   - [ ] **Implementazione Base:** Aprire il file immagine nel visualizzatore di immagini predefinito del sistema. Questo approccio non richiede dipendenze aggiuntive.
-  - [ ] **Integrazione Avanzata (Opzionale):**
-    - [ ] Aggiungere il supporto per la visualizzazione di immagini inline.
-    - [ ] Questo richiederà probabilmente l'integrazione con un plugin esistente come `image.nvim`.
-    - [ ] Documentare chiaramente che questa funzionalità è opzionale e richiede dipendenze esterne come `ImageMagick`, che non verranno imposte agli utenti base.
-  - [ ] (Opzionale) Studiare il supporto per protocolli grafici del terminale (es. Kitty, Wezterm) come alternativa per la visualizzazione inline.
+  - [ ] **Integrazione Avanzata (Inline con Pillow):**
+    - [ ] Sviluppare una soluzione di rendering inline nativa per Jove, sostituendo la dipendenza da `ImageMagick` e `image.nvim` con `Pillow`.
+    - [ ] **Ricerca:** Investigare l'implementazione del previewer di immagini di `Yazi` per capire come gestire i protocolli grafici del terminale.
+    - [ ] **Implementazione Python (nuovo script):**
+        - [ ] Usare `Pillow` per la decodifica (da base64) e la manipolazione delle immagini (es. ridimensionamento per adattarsi allo spazio disponibile).
+        - [ ] Implementare la logica per convertire l'immagine elaborata in sequenze di escape per i protocolli grafici del terminale (es. Kitty, Sixel, iTerm2).
+    - [ ] **Integrazione Lua:**
+        - [ ] Invocare lo script Python dall'handler iopub di Jove.
+        - [ ] Visualizzare l'output (le sequenze di escape) in Neovim (es. finestra flottante o testo virtuale).
 
 - [ ] **Implementare la Pulizia dell'Output:**
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.

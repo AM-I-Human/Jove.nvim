@@ -26,8 +26,12 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
   - [ ] Aggiornare i gestori `iopub` per processare i tipi MIME `image/png`, `image/jpeg`, ecc.
   - [ ] Implementare la decodifica base64 per i dati delle immagini (usando `vim.fn.base64decode`).
   - [ ] Implementare una funzione per salvare i dati dell'immagine decodificata in un file temporaneo.
-  - [ ] Aggiungere un meccanismo per aprire il file immagine nel visualizzatore di immagini predefinito del sistema.
-  - [ ] (Opzionale) Studiare il supporto per protocolli grafici del terminale (es. Kitty, Wezterm) come funzionalità avanzata.
+  - [ ] **Implementazione Base:** Aprire il file immagine nel visualizzatore di immagini predefinito del sistema. Questo approccio non richiede dipendenze aggiuntive.
+  - [ ] **Integrazione Avanzata (Opzionale):**
+    - [ ] Aggiungere il supporto per la visualizzazione di immagini inline.
+    - [ ] Questo richiederà probabilmente l'integrazione con un plugin esistente come `image.nvim`.
+    - [ ] Documentare chiaramente che questa funzionalità è opzionale e richiede dipendenze esterne come `ImageMagick`, che non verranno imposte agli utenti base.
+  - [ ] (Opzionale) Studiare il supporto per protocolli grafici del terminale (es. Kitty, Wezterm) come alternativa per la visualizzazione inline.
 
 - [ ] **Implementare la Pulizia dell'Output:**
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.

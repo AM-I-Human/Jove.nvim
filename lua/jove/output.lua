@@ -76,6 +76,23 @@ local function add_output_lines(bufnr, end_row, text_lines, opts)
 	render_accumulated_output(bufnr)
 end
 
+local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
+	local text_plain = jupyter_msg.content.data["text/plain"]
+	if not (text_plain and text_plain ~= "") then
+		return
+	end
+
+	local exec_count = jupyter_msg.content.execution_count
+	local cleaned_text = clean_string(text_plain)
+	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
+	if #lines > 0 then
+		if with_prompt and exec_count then
+			lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
+		end
+		add_output_lines(bufnr, end_row, lines, { highlight = "String" })
+	end
+end
+
 function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 	local text = jupyter_msg.content.text
 	if not text or text == "" then
@@ -89,18 +106,10 @@ function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 end
 
 function M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
-	local text_plain = jupyter_msg.content.data["text/plain"]
-	local exec_count = jupyter_msg.content.execution_count
-	if text_plain and text_plain ~= "" then
-		local cleaned_text = clean_string(text_plain)
-		local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
-		if #lines > 0 then
-			if exec_count then
-				lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
-			end
-			add_output_lines(bufnr, end_row, lines, { highlight = "String" })
-		end
+	if render_image(bufnr, start_row, end_row, jupyter_msg) then
+		return
 	end
+	add_text_plain_output(bufnr, end_row, jupyter_msg, true) -- with prompt
 end
 
 function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
@@ -220,7 +229,7 @@ function M.render_display_data(bufnr, start_row, end_row, jupyter_msg)
 	end
 
 	-- Altrimenti, esegui il fallback al rendering del testo semplice.
-	M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
+	add_text_plain_output(bufnr, end_row, jupyter_msg, false) -- without prompt
 end
 
 --- NUOVO ---

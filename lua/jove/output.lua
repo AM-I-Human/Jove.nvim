@@ -76,6 +76,58 @@ local function add_output_lines(bufnr, end_row, text_lines, opts)
 	render_accumulated_output(bufnr)
 end
 
+local function render_image(bufnr, start_row, end_row, jupyter_msg)
+	local data = jupyter_msg.content.data
+	local b64_data = data["image/png"] or data["image/jpeg"] or data["image/gif"]
+	if not b64_data then
+		return false
+	end
+
+	local sequence = term_image_adapter.render(b64_data)
+	if not sequence then
+		return false -- Il terminale non è supportato, il fallback gestirà l'output di testo.
+	end
+
+	-- Pulisce l'output virtuale precedente poiché usiamo una finestra flottante.
+	clear_range(bufnr, start_row, end_row)
+	if execution_outputs[bufnr] then
+		execution_outputs[bufnr] = nil
+	end
+
+	-- Dimensioni e posizione della finestra (valori fissi per ora)
+	local win_height = 20 -- TODO: Calcolare dalle dimensioni dell'immagine
+	local win_width = 80 -- TODO: Calcolare dalle dimensioni dell'immagine
+	local parent_win = vim.api.nvim_get_current_win()
+	local win_opts = {
+		relative = "win",
+		win = parent_win,
+		width = win_width,
+		height = win_height,
+		row = vim.fn.winline() - 1, -- Relativo alla riga corrente nella finestra
+		col = vim.fn.wincol() + 3, -- Leggermente a destra del cursore
+		style = "minimal",
+		border = "rounded",
+	}
+
+	-- Crea una finestra flottante con un terminale
+	local buf = vim.api.nvim_create_buf(false, true)
+	local win = vim.api.nvim_open_win(buf, true, win_opts)
+
+	-- Avvia un terminale e invia la sequenza di escape
+	vim.api.nvim_set_current_win(win)
+	vim.cmd("terminal")
+	local job_id = vim.b.terminal_job_id
+	vim.api.nvim_chan_send(job_id, sequence)
+
+	-- Torna alla finestra originale
+	vim.api.nvim_set_current_win(parent_win)
+
+	-- Aggiungi una mappatura per chiudere la finestra dell'immagine
+	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
+
+	return true
+end
+
 local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	if not (text_plain and text_plain ~= "") then
@@ -168,58 +220,6 @@ function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 		end
 		add_output_lines(bufnr, end_row, cleaned_traceback, { highlight = "ErrorMsg" })
 	end
-end
-
-local function render_image(bufnr, start_row, end_row, jupyter_msg)
-	local data = jupyter_msg.content.data
-	local b64_data = data["image/png"] or data["image/jpeg"] or data["image/gif"]
-	if not b64_data then
-		return false
-	end
-
-	local sequence = term_image_adapter.render(b64_data)
-	if not sequence then
-		return false -- Il terminale non è supportato, il fallback gestirà l'output di testo.
-	end
-
-	-- Pulisce l'output virtuale precedente poiché usiamo una finestra flottante.
-	clear_range(bufnr, start_row, end_row)
-	if execution_outputs[bufnr] then
-		execution_outputs[bufnr] = nil
-	end
-
-	-- Dimensioni e posizione della finestra (valori fissi per ora)
-	local win_height = 20 -- TODO: Calcolare dalle dimensioni dell'immagine
-	local win_width = 80 -- TODO: Calcolare dalle dimensioni dell'immagine
-	local parent_win = vim.api.nvim_get_current_win()
-	local win_opts = {
-		relative = "win",
-		win = parent_win,
-		width = win_width,
-		height = win_height,
-		row = vim.fn.winline() - 1, -- Relativo alla riga corrente nella finestra
-		col = vim.fn.wincol() + 3, -- Leggermente a destra del cursore
-		style = "minimal",
-		border = "rounded",
-	}
-
-	-- Crea una finestra flottante con un terminale
-	local buf = vim.api.nvim_create_buf(false, true)
-	local win = vim.api.nvim_open_win(buf, true, win_opts)
-
-	-- Avvia un terminale e invia la sequenza di escape
-	vim.api.nvim_set_current_win(win)
-	vim.cmd("terminal")
-	local job_id = vim.b.terminal_job_id
-	vim.api.nvim_chan_send(job_id, sequence)
-
-	-- Torna alla finestra originale
-	vim.api.nvim_set_current_win(parent_win)
-
-	-- Aggiungi una mappatura per chiudere la finestra dell'immagine
-	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
-
-	return true
 end
 
 function M.render_display_data(bufnr, start_row, end_row, jupyter_msg)

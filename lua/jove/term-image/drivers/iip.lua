@@ -3,6 +3,40 @@ local M = {}
 
 local log = require("jove.log")
 
+-- Correzione per la compatibilità con versioni di Neovim che non hanno base64decode
+local b64_decode
+if pcall(function() return vim.fn.base64decode end) and vim.fn.base64decode ~= nil then
+	b64_decode = vim.fn.base64decode
+else
+	-- Fallback in puro Lua per versioni di nvim più vecchie o senza la funzione
+	log.add(
+		vim.log.levels.WARN,
+		"[term-image] Funzione nativa 'base64decode' non trovata. Uso il fallback in Lua."
+	)
+	local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+	b64_decode = function(data)
+		data = string.gsub(data, "[^" .. b64 .. "]", "")
+		local out = {}
+		for i = 1, #data, 4 do
+			local c1, c2, c3, c4 = string.sub(data, i, i + 3):byte(1, 4)
+			c1 = b64:find(string.char(c1), 1, true) - 1
+			c2 = b64:find(string.char(c2), 1, true) - 1
+			table.insert(out, string.char(bit.bor(bit.lshift(c1, 2), bit.rshift(c2, 4))))
+			c3 = b64:find(string.char(c3), 1, true)
+			if c3 then
+				c3 = c3 - 1
+				table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c2, 0x0F), 4), bit.rshift(c3, 2))))
+				c4 = b64:find(string.char(c4), 1, true)
+				if c4 then
+					c4 = c4 - 1
+					table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c3, 0x03), 6), c4)))
+				end
+			end
+		end
+		return table.concat(out)
+	end
+end
+
 --- Crea la sequenza di escape per renderizzare un'immagine da dati base64.
 -- @param b64_data (string) I dati dell'immagine codificati in base64.
 -- @param opts (table) Opzioni come larghezza, altezza (attualmente non usate).
@@ -11,7 +45,7 @@ function M.create_sequence(b64_data, opts)
 	opts = opts or {}
 
 	-- Il protocollo iTerm2 richiede la dimensione dei dati *decodificati*.
-	local decoded_data = vim.fn.base64decode(b64_data)
+	local decoded_data = b64_decode(b64_data)
 	local size = #decoded_data
 
 	if size == 0 then

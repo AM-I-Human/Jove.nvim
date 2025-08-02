@@ -89,34 +89,13 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 			vim.log.levels.WARN,
 			"[jove] L'adattatore per immagini non ha prodotto una sequenza. Il rendering è annullato."
 		)
-		return false -- Il terminale non è supportato o si è verificato un errore
+		return false
 	end
 
 	-- Pulisce l'output virtuale precedente sulla riga di esecuzione
 	clear_range(bufnr, start_row, end_row)
 	if execution_outputs[bufnr] then
 		execution_outputs[bufnr] = nil
-	end
-
-	-- Crea un file temporaneo per contenere la sequenza di escape
-	local temp_file = vim.fn.tempname()
-	local file, err = io.open(temp_file, "wb") -- Apri in modalità binaria per scrivere i byte grezzi
-	if not file then
-		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per l'immagine: " .. tostring(err))
-		return false
-	end
-	file:write(sequence)
-	file:close()
-
-	-- Scegli il comando per stampare il file in base al sistema operativo
-	local term_cmd
-	if vim.fn.has("win32") == 1 then
-		-- Forza l'uso di cmd.exe per evitare l'output di PowerShell Job.
-		-- Il comando 'type' di cmd.exe stampa il contenuto grezzo del file e /c lo chiude.
-		term_cmd = "cmd /c type " .. vim.fn.shellescape(temp_file)
-	else
-		-- Per i sistemi Unix, 'cat' funziona bene e '; exit' assicura che la shell si chiuda.
-		term_cmd = "cat " .. vim.fn.shellescape(temp_file) .. "; exit"
 	end
 
 	-- TODO: Calcolare le dimensioni della finestra in base alla dimensione dell'immagine (se possibile)
@@ -136,19 +115,43 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 		title_pos = "center",
 	}
 
-	-- Crea una finestra flottante e avvia il terminale con il comando per stampare l'immagine
+	-- Crea una finestra flottante per ospitare il terminale
 	local buf = vim.api.nvim_create_buf(false, true)
 	local win = vim.api.nvim_open_win(buf, true, win_opts)
+
+	-- Mappa 'q' per chiudere la finestra in caso di problemi
+	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
+
+	-- Avvia un terminale vuoto. Invieremo i dati direttamente al suo processo.
 	vim.api.nvim_set_current_win(win)
-	vim.cmd("terminal " .. term_cmd)
+	vim.cmd("terminal")
 
-	-- Torna alla finestra originale
-	vim.api.nvim_set_current_win(parent_win)
-
-	-- Pulisci il file temporaneo dopo un breve ritardo per dare al terminale il tempo di leggerlo
-	vim.defer_fn(function()
-		vim.fn.delete(temp_file)
-	end, 1500)
+	-- Poiché l'avvio del terminale e l'assegnazione di `vim.b.terminal_job_id` sono asincroni,
+	-- usiamo vim.schedule per attendere che l'ID del job sia disponibile.
+	vim.schedule(function()
+		local job_id = vim.b.terminal_job_id
+		if job_id and job_id > 0 then
+			log.add(vim.log.levels.INFO, "Invio sequenza immagine al canale del terminale: " .. job_id)
+			-- Invia la sequenza di escape grezza direttamente al TTY del terminale.
+			-- Questo bypassa la shell (cmd, powershell) e le sue interpretazioni.
+			vim.api.nvim_chan_send(job_id, sequence)
+			-- Chiude automaticamente la finestra dopo un breve ritardo per permettere il rendering
+			vim.defer_fn(function()
+				if vim.api.nvim_win_is_valid(win) then
+					vim.api.nvim_win_close(win, true)
+				end
+			end, 1500)
+		else
+			log.add(vim.log.levels.ERROR, "Impossibile ottenere il job_id del terminale per inviare l'immagine.")
+			if vim.api.nvim_win_is_valid(win) then
+				vim.api.nvim_win_close(win, true)
+			end
+		end
+		-- Assicura di tornare alla finestra originale
+		if vim.api.nvim_win_is_valid(parent_win) then
+			vim.api.nvim_set_current_win(parent_win)
+		end
+	end)
 
 	return true
 end

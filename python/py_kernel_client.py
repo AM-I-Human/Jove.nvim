@@ -5,13 +5,6 @@ import threading
 import time
 import os
 from queue import Empty
-import base64
-import io
-
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
 
 # Configurazione del logging (semplice, per debug)
 LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
@@ -66,17 +59,6 @@ class KernelClient:
                     msg_type = msg.get("header", {}).get("msg_type", "unknown")
                     log_message(f"IOPub received: {msg_type}")
 
-                    # Check for image data to handle specially
-                    if msg_type in ("display_data", "execute_result"):
-                        data = msg.get("content", {}).get("data", {})
-                        if (
-                            "image/png" in data
-                            or "image/jpeg" in data
-                            or "image/gif" in data
-                        ):
-                            self.handle_image_output(data)
-                            continue  # Skip sending the original iopub message
-
                     self.send_to_lua({"type": "iopub", "message": msg})
                 except Empty:
                     pass  # No message on iopub, that's fine.
@@ -102,60 +84,6 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
-    def handle_image_output(self, data, target_width=120):
-        if not Image:
-            self.send_to_lua(
-                {
-                    "type": "error",
-                    "message": "Pillow library is not installed. Please run 'pip install Pillow' to display images.",
-                }
-            )
-            return
-
-        b64_data = (
-            data.get("image/png") or data.get("image/jpeg") or data.get("image/gif")
-        )
-        if not b64_data:
-            return
-
-        try:
-            image_data = base64.b64decode(b64_data)
-            img = Image.open(io.BytesIO(image_data))
-
-            # Resize the image
-            w, h = img.size
-            aspect_ratio = h / w
-            new_w = target_width
-            new_h = int(new_w * aspect_ratio)
-            # We use half-block characters, so the character height will be half the pixel height
-            # Ensure the pixel height is an even number for simplicity
-            if new_h % 2 != 0:
-                new_h += 1
-
-            resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-            # Ensure it's RGB for consistent processing
-            resized_img = resized_img.convert("RGB")
-
-            pixels = []
-            for y in range(new_h):
-                row = []
-                for x in range(new_w):
-                    row.append(resized_img.getpixel((x, y)))
-                pixels.append(row)
-
-            payload = {
-                "width": new_w,
-                "height": new_h,
-                "pixels": pixels,
-            }
-            self.send_to_lua({"type": "image_pixels", "payload": payload})
-
-        except Exception as e:
-            log_message(f"Error processing image: {e}")
-            self.send_to_lua(
-                {"type": "error", "message": f"Failed to process image: {e}"}
-            )
 
     def send_execute_request(self, jupyter_msg_payload):
         log_message("Preparing to send execute_request.")

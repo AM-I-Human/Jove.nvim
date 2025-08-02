@@ -24,14 +24,14 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
 
 - [x] **Aggiungere il Supporto per l'Output di Immagini (Plot):**
   - [x] Aggiornare i gestori `iopub` per processare i tipi MIME `image/png`, `image/jpeg`, ecc.
-  - [x] Implementare la decodifica base64 per i dati delle immagini (usando `vim.fn.base64decode`).
-  - [x] **Integrazione Avanzata (Inline con `chafa`):**
-    - [x] Sviluppata una soluzione di rendering inline che converte le immagini in testo colorato.
+  - [x] **Integrazione Avanzata (Inline con Pillow e ANSI):**
+    - [x] Sviluppata una soluzione di rendering inline che converte le immagini in testo colorato via Python.
     - [x] **Implementazione:**
-        - [x] Utilizza `chafa` (utility esterna) per convertire i dati dell'immagine in output ANSI.
-        - [x] Analizza l'output ANSI e lo converte in testo virtuale con highlight per Neovim.
+        - [x] Il client Python (`py_kernel_client.py`) usa `Pillow` per processare i dati dell'immagine.
+        - [x] L'immagine viene convertita in testo con codici di escape ANSI per i colori.
+        - [x] Lua riceve il testo ANSI e lo traduce in testo virtuale con highlight per Neovim.
         - [x] L'immagine viene visualizzata direttamente nel buffer, sotto la cella di esecuzione.
-    - [x] **Nota:** Richiede che l'utility `chafa` sia installata e nel PATH di sistema.
+    - [x] **Nota:** Richiede che la libreria `Pillow` sia installata nell'ambiente Python del kernel.
 
 - [ ] **Implementare la Pulizia dell'Output:**
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.

@@ -5,6 +5,13 @@ import threading
 import time
 import os
 from queue import Empty
+import base64
+import io
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 # Configurazione del logging (semplice, per debug)
 LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
@@ -59,6 +66,16 @@ class KernelClient:
                     msg_type = msg.get("header", {}).get("msg_type", "unknown")
                     log_message(f"IOPub received: {msg_type}")
 
+                    if msg_type in ("display_data", "execute_result"):
+                        data = msg.get("content", {}).get("data", {})
+                        if (
+                            "image/png" in data
+                            or "image/jpeg" in data
+                            or "image/gif" in data
+                        ):
+                            if self.handle_image_output(data):
+                                continue  # Immagine gestita, salta l'invio del messaggio originale
+
                     self.send_to_lua({"type": "iopub", "message": msg})
                 except Empty:
                     pass  # No message on iopub, that's fine.
@@ -83,6 +100,58 @@ class KernelClient:
             sys.stdout.flush()
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
+
+    def handle_image_output(self, data, target_width=80):
+        if not Image:
+            log_message(
+                "Pillow library not installed. Cannot process image. Falling back to text."
+            )
+            return False
+
+        b64_data = (
+            data.get("image/png") or data.get("image/jpeg") or data.get("image/gif")
+        )
+        if not b64_data:
+            return False
+
+        try:
+            image_data = base64.b64decode(b64_data)
+            img = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+            w, h = img.size
+            aspect_ratio = h / w
+            new_w = target_width
+            # Calcola l'altezza in caratteri (usando blocchi a metà altezza)
+            new_h_chars = int(new_w * aspect_ratio / 2)
+            new_h_pixels = new_h_chars * 2
+
+            resized_img = img.resize((new_w, new_h_pixels), Image.Resampling.LANCZOS)
+
+            ansi_lines = []
+            for y in range(0, new_h_pixels, 2):
+                line_str = []
+                for x in range(new_w):
+                    top_r, top_g, top_b = resized_img.getpixel((x, y))
+                    bot_r, bot_g, bot_b = resized_img.getpixel((x, y + 1))
+                    
+                    # Usa il carattere '▄' (Upper half block)
+                    # Colore di primo piano (fg) per il pixel superiore
+                    # Colore di sfondo (bg) per il pixel inferiore
+                    ansi_esc = f"\x1b[38;2;{top_r};{top_g};{top_b}m"
+                    ansi_esc += f"\x1b[48;2;{bot_r};{bot_g};{bot_b}m"
+                    ansi_esc += "▄"
+                    line_str.append(ansi_esc)
+                
+                ansi_lines.append("".join(line_str) + "\x1b[0m") # Reset a fine riga
+
+            full_ansi_str = "\n".join(ansi_lines)
+
+            self.send_to_lua({"type": "image_ansi", "payload": full_ansi_str})
+            return True
+
+        except Exception as e:
+            log_message(f"Error processing image with Pillow: {e}")
+            return False
 
 
     def send_execute_request(self, jupyter_msg_payload):

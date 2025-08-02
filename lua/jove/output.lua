@@ -142,54 +142,13 @@ local function parse_ansi_to_virt_text(ansi_text)
 	return virt_lines
 end
 
-local function render_image(bufnr, start_row, end_row, jupyter_msg)
-	if vim.fn.executable("chafa") ~= 1 then
-		vim.notify(
-			"'chafa' non trovato. Per visualizzare immagini, installa chafa e assicurati che sia nel tuo PATH.",
-			vim.log.levels.WARN,
-			{ title = "Jove" }
-		)
-		return false
-	end
-
-	local data = jupyter_msg.content.data
-	local b64_data = data["image/png"] or data["image/jpeg"] or data["image/gif"]
-	if not b64_data then
-		return false
-	end
-
+--- Renderizza una stringa ANSI come testo virtuale. Chiamata da kernel.lua
+function M.render_ansi_image(bufnr, start_row, end_row, ansi_string)
 	clear_range(bufnr, start_row, end_row)
 	execution_outputs[bufnr] = nil
 
-	local ok, decoded_data = pcall(vim.fn.base64decode, b64_data)
-	if not ok or not decoded_data then
-		log.add(vim.log.levels.ERROR, "Errore durante la decodifica base64 dell'immagine.")
-		return false
-	end
-
-	local temp_file = vim.fn.tempname()
-	local file, err = io.open(temp_file, "wb")
-	if not file then
-		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per l'immagine: " .. tostring(err))
-		return false
-	end
-	file:write(decoded_data)
-	file:close()
-
-	local width = 80 -- TODO: Rendere configurabile o dinamico
-	local height = 24
-	local chafa_cmd = string.format("chafa -f symbols --size %dx%d %s", width, height, vim.fn.shellescape(temp_file))
-	local ansi_output = vim.fn.system(chafa_cmd)
-	vim.fn.delete(temp_file)
-
-	if not ansi_output or ansi_output == "" then
-		log.add(vim.log.levels.ERROR, "Chafa non ha prodotto output.")
-		return false
-	end
-
-	local virt_lines = parse_ansi_to_virt_text(ansi_output)
+	local virt_lines = parse_ansi_to_virt_text(ansi_string)
 	add_output_lines(bufnr, end_row, virt_lines)
-	return true
 end
 
 local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
@@ -231,9 +190,8 @@ function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 end
 
 function M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
-	if render_image(bufnr, start_row, end_row, jupyter_msg) then
-		return
-	end
+	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
+	-- Questa funzione gestisce solo il fallback testuale.
 	add_text_plain_output(bufnr, end_row, jupyter_msg, true) -- with prompt
 end
 
@@ -301,12 +259,8 @@ function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 end
 
 function M.render_display_data(bufnr, start_row, end_row, jupyter_msg)
-	-- Tenta di renderizzare l'immagine. Se ha successo, termina.
-	if render_image(bufnr, start_row, end_row, jupyter_msg) then
-		return
-	end
-
-	-- Altrimenti, esegui il fallback al rendering del testo semplice.
+	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
+	-- Questa funzione gestisce solo il fallback testuale.
 	add_text_plain_output(bufnr, end_row, jupyter_msg, false) -- without prompt
 end
 

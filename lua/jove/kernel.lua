@@ -171,6 +171,16 @@ function M.handle_py_client_message(kernel_name, json_line)
 			log.add(vim.log.levels.INFO, "Kernel interrotto con successo.")
 			status.update_status(kernel_name, "idle")
 		end
+	elseif msg_type == "image_ansi" then
+		local k_info = kernels_config[kernel_name]
+		if k_info.current_execution_bufnr then
+			output.render_ansi_image(
+				k_info.current_execution_bufnr,
+				k_info.current_execution_start_row,
+				k_info.current_execution_end_row,
+				data.payload
+			)
+		end
 	elseif msg_type == "iopub" and kernels_config[kernel_name].current_execution_bufnr then
 		local iopub_msg_type = jupyter_msg.header.msg_type
 		local handler = output.iopub_handlers[iopub_msg_type]

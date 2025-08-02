@@ -84,7 +84,7 @@ local function parse_ansi_to_virt_text(ansi_text)
 		local virt_line = {}
 		local remaining_line = line
 		while #remaining_line > 0 do
-			local s, e, seq = string.find(remaining_line, "\27%[.-m")
+			local s, e, seq = string.find(remaining_line, "(\27%[.-m)")
 			local text_chunk = s and string.sub(remaining_line, 1, s - 1) or remaining_line
 
 			if #text_chunk > 0 then

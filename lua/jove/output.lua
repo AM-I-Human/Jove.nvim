@@ -84,46 +84,70 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 	end
 
 	local sequence = term_image_adapter.render(b64_data)
-	if not sequence then
-		return false -- Il terminale non è supportato, il fallback gestirà l'output di testo.
+	if not sequence or sequence == "" then
+		log.add(
+			vim.log.levels.WARN,
+			"[jove] L'adattatore per immagini non ha prodotto una sequenza. Il rendering è annullato."
+		)
+		return false -- Il terminale non è supportato o si è verificato un errore
 	end
 
-	-- Pulisce l'output virtuale precedente poiché usiamo una finestra flottante.
+	-- Pulisce l'output virtuale precedente sulla riga di esecuzione
 	clear_range(bufnr, start_row, end_row)
 	if execution_outputs[bufnr] then
 		execution_outputs[bufnr] = nil
 	end
 
-	-- Dimensioni e posizione della finestra (valori fissi per ora)
-	local win_height = 20 -- TODO: Calcolare dalle dimensioni dell'immagine
-	local win_width = 80 -- TODO: Calcolare dalle dimensioni dell'immagine
+	-- Crea un file temporaneo per contenere la sequenza di escape
+	local temp_file = vim.fn.tempname()
+	local file, err = io.open(temp_file, "wb") -- Apri in modalità binaria per scrivere i byte grezzi
+	if not file then
+		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per l'immagine: " .. tostring(err))
+		return false
+	end
+	file:write(sequence)
+	file:close()
+
+	-- Scegli il comando per stampare il file in base al sistema operativo
+	local print_cmd, exit_cmd
+	if vim.fn.has("win32") == 1 then
+		print_cmd = "type " .. vim.fn.shellescape(temp_file)
+		exit_cmd = " & exit" -- Per cmd.exe
+	else
+		print_cmd = "cat " .. vim.fn.shellescape(temp_file)
+		exit_cmd = "; exit" -- Per sh/bash
+	end
+
+	-- TODO: Calcolare le dimensioni della finestra in base alla dimensione dell'immagine (se possibile)
+	local win_height = 20
+	local win_width = 80
 	local parent_win = vim.api.nvim_get_current_win()
 	local win_opts = {
 		relative = "win",
 		win = parent_win,
 		width = win_width,
 		height = win_height,
-		row = vim.fn.winline() - 1, -- Relativo alla riga corrente nella finestra
-		col = vim.fn.wincol() + 3, -- Leggermente a destra del cursore
+		row = vim.fn.winline() - 1,
+		col = vim.fn.wincol() + 3,
 		style = "minimal",
 		border = "rounded",
+		title = "Image Preview",
+		title_pos = "center",
 	}
 
-	-- Crea una finestra flottante con un terminale
+	-- Crea una finestra flottante e avvia il terminale con il comando per stampare l'immagine
 	local buf = vim.api.nvim_create_buf(false, true)
 	local win = vim.api.nvim_open_win(buf, true, win_opts)
-
-	-- Avvia un terminale e invia la sequenza di escape
 	vim.api.nvim_set_current_win(win)
-	vim.cmd("terminal")
-	local job_id = vim.b.terminal_job_id
-	vim.api.nvim_chan_send(job_id, sequence)
+	vim.cmd("terminal " .. print_cmd .. exit_cmd)
 
 	-- Torna alla finestra originale
 	vim.api.nvim_set_current_win(parent_win)
 
-	-- Aggiungi una mappatura per chiudere la finestra dell'immagine
-	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
+	-- Pulisci il file temporaneo dopo un breve ritardo per dare al terminale il tempo di leggerlo
+	vim.defer_fn(function()
+		vim.fn.delete(temp_file)
+	end, 1500)
 
 	return true
 end

@@ -22,6 +22,7 @@ local function deep_merge(tbl1, tbl2)
 end
 
 local defaults = {
+	image_width = 120, -- Larghezza in caratteri per le immagini renderizzate.
 	kernels = {
 		python = {
 			cmd = "python -m ipykernel_launcher -f {connection_file}",

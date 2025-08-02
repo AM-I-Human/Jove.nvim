@@ -93,10 +93,12 @@ function M.start(kernel_name, on_ready_callback)
 end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref, on_ready_callback)
-	local kernels_config = config_module.get_config().kernels
+	local jove_config = config_module.get_config()
+	local kernels_config = jove_config.kernels
+	local image_width = tostring(jove_config.image_width or 120)
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
 	local executable = (kernels_config[kernel_name] or {}).executable or "python"
-	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path }
+	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path, image_width }
 
 	-- Assicura che la tabella esista e imposta i job ID
 	kernels_config[kernel_name] = kernels_config[kernel_name] or {}

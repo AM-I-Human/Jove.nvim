@@ -2,6 +2,10 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from PIL import Image
 
+# Per migliorare la qualità dei plot di matplotlib, puoi aumentare i DPI.
+# Jupyter usa 'figure.dpi' e 'savefig.dpi' dalla configurazione di matplotlib.
+plt.rcParams['figure.dpi'] = 150
+
 Image.open(r"C:\Users\andre\Pictures\Andrea\Small_SALOTTO-CULTURALE_MG_6719.jpg")
 
 plt.plot(pd.DataFrame({"a": list(range(10))}))

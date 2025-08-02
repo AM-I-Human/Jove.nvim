@@ -24,10 +24,11 @@ def log_message(message):
 
 
 class KernelClient:
-    def __init__(self, connection_file_path):
+    def __init__(self, connection_file_path, image_width=80):
         log_message(
-            f"Initializing KernelClient with connection file: {connection_file_path}"
+            f"Initializing KernelClient with connection file: {connection_file_path}, image width: {image_width}"
         )
+        self.image_width = image_width
         try:
             self.kc = jupyter_client.BlockingKernelClient(
                 connection_file=connection_file_path
@@ -101,7 +102,8 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
-    def handle_image_output(self, data, target_width=80):
+    def handle_image_output(self, data):
+        target_width = self.image_width
         if not Image:
             log_message(
                 "Pillow library not installed. Cannot process image. Falling back to text."
@@ -372,6 +374,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     connection_file = sys.argv[1]
+    image_width = int(sys.argv[2]) if len(sys.argv) > 2 else 80
     try:
         with open(LOG_FILE_PATH, "w") as f:
             f.write(
@@ -381,6 +384,6 @@ if __name__ == "__main__":
         LOG_FILE_PATH = os.path.join(os.getcwd(), "jove_py_client.log")
         log_message("Log file path changed to current working directory.")
 
-    client = KernelClient(connection_file)
+    client = KernelClient(connection_file, image_width)
     client.run()
     log_message("Python KernelClient finished.")

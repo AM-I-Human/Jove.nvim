@@ -13,6 +13,11 @@ try:
 except ImportError:
     Image = None
 
+try:
+    from sixel import SixelWriter
+except ImportError:
+    SixelWriter = None
+
 # Configurazione del logging (semplice, per debug)
 LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
 
@@ -24,11 +29,12 @@ def log_message(message):
 
 
 class KernelClient:
-    def __init__(self, connection_file_path, image_width=80):
+    def __init__(self, connection_file_path, image_width=80, image_renderer="sixel"):
         log_message(
-            f"Initializing KernelClient with connection file: {connection_file_path}, image width: {image_width}"
+            f"Initializing KernelClient with connection file: {connection_file_path}, image width: {image_width}, renderer: {image_renderer}"
         )
         self.image_width = image_width
+        self.image_renderer = image_renderer
         try:
             self.kc = jupyter_client.BlockingKernelClient(
                 connection_file=connection_file_path
@@ -102,12 +108,52 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
+    def _render_to_ansi(self, img, target_width):
+        w, h = img.size
+        aspect_ratio = h / w
+        new_w = target_width
+        new_h_chars = int(new_w * aspect_ratio / 2)
+        new_h_pixels = new_h_chars * 2
+        if new_h_pixels == 0:
+            return None
+
+        resized_img = img.resize((new_w, new_h_pixels), Image.Resampling.LANCZOS)
+        ansi_lines = []
+        for y in range(0, new_h_pixels, 2):
+            line_str = []
+            for x in range(new_w):
+                top_r, top_g, top_b = resized_img.getpixel((x, y))
+                bot_r, bot_g, bot_b = resized_img.getpixel((x, y + 1))
+                ansi_esc = f"\x1b[38;2;{top_r};{top_g};{top_b}m"
+                ansi_esc += f"\x1b[48;2;{bot_r};{bot_g};{bot_b}m"
+                ansi_esc += "▄"
+                line_str.append(ansi_esc)
+            ansi_lines.append("".join(line_str) + "\x1b[0m")
+        return "\n".join(ansi_lines)
+
+    def _render_to_sixel(self, img, target_width):
+        if not SixelWriter:
+            log_message("libsixel-python not installed. Cannot use Sixel renderer.")
+            return None
+
+        w, h = img.size
+        aspect_ratio = h / w
+        new_w = target_width
+        new_h = int(new_w * aspect_ratio)
+        if new_h == 0:
+            return None
+        
+        resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        d = io.BytesIO()
+        writer = SixelWriter(d)
+        writer.draw(resized_img)
+        return d.getvalue().decode('ascii')
+
     def handle_image_output(self, data):
         target_width = self.image_width
         if not Image:
-            log_message(
-                "Pillow library not installed. Cannot process image. Falling back to text."
-            )
+            log_message("Pillow library not installed.")
             return False
 
         b64_data = (
@@ -119,41 +165,27 @@ class KernelClient:
         try:
             image_data = base64.b64decode(b64_data)
             img = Image.open(io.BytesIO(image_data)).convert("RGB")
+            
+            output_str = None
+            output_type = None
 
-            w, h = img.size
-            aspect_ratio = h / w
-            new_w = target_width
-            # Calcola l'altezza in caratteri (usando blocchi a metà altezza)
-            new_h_chars = int(new_w * aspect_ratio / 2)
-            new_h_pixels = new_h_chars * 2
+            if self.image_renderer == 'sixel':
+                output_str = self._render_to_sixel(img, target_width)
+                output_type = "image_sixel"
+            
+            # Fallback to ANSI if Sixel fails or is not chosen
+            if not output_str:
+                output_str = self._render_to_ansi(img, target_width)
+                output_type = "image_ansi"
 
-            resized_img = img.resize((new_w, new_h_pixels), Image.Resampling.LANCZOS)
-
-            ansi_lines = []
-            for y in range(0, new_h_pixels, 2):
-                line_str = []
-                for x in range(new_w):
-                    top_r, top_g, top_b = resized_img.getpixel((x, y))
-                    bot_r, bot_g, bot_b = resized_img.getpixel((x, y + 1))
-                    
-                    # Usa il carattere '▄' (Upper half block)
-                    # Colore di primo piano (fg) per il pixel superiore
-                    # Colore di sfondo (bg) per il pixel inferiore
-                    ansi_esc = f"\x1b[38;2;{top_r};{top_g};{top_b}m"
-                    ansi_esc += f"\x1b[48;2;{bot_r};{bot_g};{bot_b}m"
-                    ansi_esc += "▄"
-                    line_str.append(ansi_esc)
-                
-                ansi_lines.append("".join(line_str) + "\x1b[0m") # Reset a fine riga
-
-            full_ansi_str = "\n".join(ansi_lines)
-
-            self.send_to_lua({"type": "image_ansi", "payload": full_ansi_str})
-            return True
+            if output_str:
+                self.send_to_lua({"type": output_type, "payload": output_str})
+                return True
 
         except Exception as e:
             log_message(f"Error processing image with Pillow: {e}")
-            return False
+        
+        return False
 
 
     def send_execute_request(self, jupyter_msg_payload):
@@ -374,7 +406,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     connection_file = sys.argv[1]
-    image_width = int(sys.argv[2]) if len(sys.argv) > 2 else 80
+    image_width = int(sys.argv[2]) if len(sys.argv) > 2 else 120
+    image_renderer = sys.argv[3] if len(sys.argv) > 3 else "sixel"
     try:
         with open(LOG_FILE_PATH, "w") as f:
             f.write(
@@ -384,6 +417,6 @@ if __name__ == "__main__":
         LOG_FILE_PATH = os.path.join(os.getcwd(), "jove_py_client.log")
         log_message("Log file path changed to current working directory.")
 
-    client = KernelClient(connection_file, image_width)
+    client = KernelClient(connection_file, image_width, image_renderer)
     client.run()
     log_message("Python KernelClient finished.")

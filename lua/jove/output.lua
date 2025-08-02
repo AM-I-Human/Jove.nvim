@@ -151,6 +151,55 @@ function M.render_ansi_image(bufnr, start_row, end_row, ansi_string)
 	add_output_lines(bufnr, end_row, virt_lines)
 end
 
+--- Renderizza una stringa Sixel in una finestra di terminale flottante.
+function M.render_sixel_image(bufnr, start_row, end_row, sixel_string)
+	clear_range(bufnr, start_row, end_row)
+	execution_outputs[bufnr] = nil
+
+	local temp_file = vim.fn.tempname()
+	local file, err = io.open(temp_file, "wb")
+	if not file then
+		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per Sixel: " .. tostring(err))
+		return
+	end
+	file:write(sixel_string)
+	file:close()
+
+	local print_cmd
+	if vim.fn.has("win32") == 1 then
+		print_cmd = "cmd /c type " .. vim.fn.shellescape(temp_file)
+	else
+		print_cmd = "cat " .. vim.fn.shellescape(temp_file) .. "; exit"
+	end
+
+	local win_height = 30 -- Valori di default
+	local win_width = 120
+	local parent_win = vim.api.nvim_get_current_win()
+	local win_opts = {
+		relative = "win",
+		win = parent_win,
+		width = win_width,
+		height = win_height,
+		row = vim.fn.winline() - 1,
+		col = vim.fn.wincol() + 3,
+		style = "minimal",
+		border = "rounded",
+	}
+
+	local term_buf = vim.api.nvim_create_buf(false, true)
+	local term_win = vim.api.nvim_open_win(term_buf, true, win_opts)
+	vim.api.nvim_set_current_win(term_win)
+	vim.cmd("terminal " .. print_cmd)
+
+	vim.api.nvim_set_current_win(parent_win)
+	vim.defer_fn(function()
+		vim.fn.delete(temp_file)
+		if vim.api.nvim_win_is_valid(term_win) then
+			vim.api.nvim_win_close(term_win, true)
+		end
+	end, 2000) -- Aumentato per immagini grandi
+end
+
 local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	if not (text_plain and text_plain ~= "") then

@@ -23,15 +23,14 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
   - [ ] Aggiungere un'opzione di configurazione per permettere all'utente di scegliere il metodo preferito (es. `html_viewer = "integrated" | "browser"`).
 
 - [x] **Aggiungere il Supporto per l'Output di Immagini (Plot):**
-  - [x] Aggiornare i gestori `iopub` per processare i tipi MIME `image/png`, `image/jpeg`, ecc.
-  - [x] **Integrazione Avanzata (Inline con Pillow e ANSI):**
-    - [x] Sviluppata una soluzione di rendering inline che converte le immagini in testo colorato via Python.
-    - [x] **Implementazione:**
-        - [x] Il client Python (`py_kernel_client.py`) usa `Pillow` per processare i dati dell'immagine.
-        - [x] L'immagine viene convertita in testo con codici di escape ANSI per i colori.
-        - [x] Lua riceve il testo ANSI e lo traduce in testo virtuale con highlight per Neovim.
-        - [x] L'immagine viene visualizzata direttamente nel buffer, sotto la cella di esecuzione.
-    - [x] **Nota:** Richiede che la libreria `Pillow` sia installata nell'ambiente Python del kernel.
+  - [x] Implementata architettura a strateg_ie (Strategy Pattern) per il rendering delle immagini.
+  - [x] **Strategia `sixel` (default):**
+    - [x] Il client Python usa `libsixel-python` per convertire le immagini in formato Sixel.
+    - [x] Lua visualizza l'output Sixel in una finestra di terminale flottante per il rendering nativo.
+    - [x] **Nota:** Richiede `Pillow`, `libsixel-python` e la libreria `libsixel` installata nel sistema.
+  - [x] **Strategia `ansi` (fallback):**
+    - [x] Il client Python usa `Pillow` per convertire le immagini in testo ANSI (caratteri a blocchi).
+    - [x] Lua visualizza l'output come testo virtuale colorato.
 
 - [ ] **Implementare la Pulizia dell'Output:**
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.

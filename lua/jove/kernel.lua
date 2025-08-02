@@ -96,9 +96,17 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	local jove_config = config_module.get_config()
 	local kernels_config = jove_config.kernels
 	local image_width = tostring(jove_config.image_width or 120)
+	local image_renderer = jove_config.image_renderer or "sixel"
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
 	local executable = (kernels_config[kernel_name] or {}).executable or "python"
-	local py_client_cmd = { executable, "-u", py_client_script, connection_file_path, image_width }
+	local py_client_cmd = {
+		executable,
+		"-u",
+		py_client_script,
+		connection_file_path,
+		image_width,
+		image_renderer,
+	}
 
 	-- Assicura che la tabella esista e imposta i job ID
 	kernels_config[kernel_name] = kernels_config[kernel_name] or {}
@@ -177,6 +185,16 @@ function M.handle_py_client_message(kernel_name, json_line)
 		local k_info = kernels_config[kernel_name]
 		if k_info.current_execution_bufnr then
 			output.render_ansi_image(
+				k_info.current_execution_bufnr,
+				k_info.current_execution_start_row,
+				k_info.current_execution_end_row,
+				data.payload
+			)
+		end
+	elseif msg_type == "image_sixel" then
+		local k_info = kernels_config[kernel_name]
+		if k_info.current_execution_bufnr then
+			output.render_sixel_image(
 				k_info.current_execution_bufnr,
 				k_info.current_execution_start_row,
 				k_info.current_execution_end_row,

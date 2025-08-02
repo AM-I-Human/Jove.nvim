@@ -22,20 +22,16 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
     - [ ] Implementare una funzione per aprire questo file nel browser web predefinito del sistema.
   - [ ] Aggiungere un'opzione di configurazione per permettere all'utente di scegliere il metodo preferito (es. `html_viewer = "integrated" | "browser"`).
 
-- [ ] **Aggiungere il Supporto per l'Output di Immagini (Plot):**
-  - [ ] Aggiornare i gestori `iopub` per processare i tipi MIME `image/png`, `image/jpeg`, ecc.
-  - [ ] Implementare la decodifica base64 per i dati delle immagini (usando `vim.fn.base64decode`).
-  - [ ] Implementare una funzione per salvare i dati dell'immagine decodificata in un file temporaneo.
-  - [ ] **Implementazione Base:** Aprire il file immagine nel visualizzatore di immagini predefinito del sistema. Questo approccio non richiede dipendenze aggiuntive.
-  - [ ] **Integrazione Avanzata (Inline con Pillow):**
-    - [ ] Sviluppare una soluzione di rendering inline nativa per Jove, sostituendo la dipendenza da `ImageMagick` e `image.nvim` con `Pillow`.
-    - [ ] **Ricerca:** Investigare l'implementazione del previewer di immagini di `Yazi` per capire come gestire i protocolli grafici del terminale.
-    - [ ] **Implementazione Python (nuovo script):**
-        - [ ] Usare `Pillow` per la decodifica (da base64) e la manipolazione delle immagini (es. ridimensionamento per adattarsi allo spazio disponibile).
-        - [ ] Implementare la logica per convertire l'immagine elaborata in sequenze di escape per i protocolli grafici del terminale (es. Kitty, Sixel, iTerm2).
-    - [ ] **Integrazione Lua:**
-        - [ ] Invocare lo script Python dall'handler iopub di Jove.
-        - [ ] Visualizzare l'output (le sequenze di escape) in Neovim (es. finestra flottante o testo virtuale).
+- [x] **Aggiungere il Supporto per l'Output di Immagini (Plot):**
+  - [x] Aggiornare i gestori `iopub` per processare i tipi MIME `image/png`, `image/jpeg`, ecc.
+  - [x] Implementare la decodifica base64 per i dati delle immagini (usando `vim.fn.base64decode`).
+  - [x] **Integrazione Avanzata (Inline con `chafa`):**
+    - [x] Sviluppata una soluzione di rendering inline che converte le immagini in testo colorato.
+    - [x] **Implementazione:**
+        - [x] Utilizza `chafa` (utility esterna) per convertire i dati dell'immagine in output ANSI.
+        - [x] Analizza l'output ANSI e lo converte in testo virtuale con highlight per Neovim.
+        - [x] L'immagine viene visualizzata direttamente nel buffer, sotto la cella di esecuzione.
+    - [x] **Nota:** Richiede che l'utility `chafa` sia installata e nel PATH di sistema.
 
 - [ ] **Implementare la Pulizia dell'Output:**
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.

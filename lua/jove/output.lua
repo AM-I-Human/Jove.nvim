@@ -144,7 +144,11 @@ end
 
 local function render_image(bufnr, start_row, end_row, jupyter_msg)
 	if vim.fn.executable("chafa") ~= 1 then
-		log.add(vim.log.levels.ERROR, "'chafa' non trovato. Impossibile renderizzare l'immagine.")
+		vim.notify(
+			"'chafa' non trovato. Per visualizzare immagini, installa chafa e assicurati che sia nel tuo PATH.",
+			vim.log.levels.WARN,
+			{ title = "Jove" }
+		)
 		return false
 	end
 
@@ -157,18 +161,16 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 	clear_range(bufnr, start_row, end_row)
 	execution_outputs[bufnr] = nil
 
-	local decoded_data
-	pcall(function()
-		decoded_data = vim.fn.base64decode(b64_data)
-	end)
-	if not decoded_data then
+	local ok, decoded_data = pcall(vim.fn.base64decode, b64_data)
+	if not ok or not decoded_data then
 		log.add(vim.log.levels.ERROR, "Errore durante la decodifica base64 dell'immagine.")
 		return false
 	end
 
 	local temp_file = vim.fn.tempname()
-	local file = io.open(temp_file, "wb")
+	local file, err = io.open(temp_file, "wb")
 	if not file then
+		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per l'immagine: " .. tostring(err))
 		return false
 	end
 	file:write(decoded_data)

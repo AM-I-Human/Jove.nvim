@@ -3,38 +3,43 @@ local M = {}
 
 local log = require("jove.log")
 
--- Correzione per la compatibilità con versioni di Neovim che non hanno base64decode
-local b64_decode
-if pcall(function() return vim.fn.base64decode end) and vim.fn.base64decode ~= nil then
-	b64_decode = vim.fn.base64decode
-else
-	-- Fallback in puro Lua per versioni di nvim più vecchie o senza la funzione
+-- Fallback in puro Lua per la decodifica base64.
+local function lua_b64_decode(data)
 	log.add(
 		vim.log.levels.WARN,
-		"[term-image] Funzione nativa 'base64decode' non trovata. Uso il fallback in Lua."
+		"[term-image] Funzione nativa 'base64decode' fallita o non trovata. Uso il fallback in Lua."
 	)
 	local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-	b64_decode = function(data)
-		data = string.gsub(data, "[^" .. b64 .. "]", "")
-		local out = {}
-		for i = 1, #data, 4 do
-			local c1, c2, c3, c4 = string.sub(data, i, i + 3):byte(1, 4)
-			c1 = b64:find(string.char(c1), 1, true) - 1
-			c2 = b64:find(string.char(c2), 1, true) - 1
-			table.insert(out, string.char(bit.bor(bit.lshift(c1, 2), bit.rshift(c2, 4))))
-			c3 = b64:find(string.char(c3), 1, true)
-			if c3 then
-				c3 = c3 - 1
-				table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c2, 0x0F), 4), bit.rshift(c3, 2))))
-				c4 = b64:find(string.char(c4), 1, true)
-				if c4 then
-					c4 = c4 - 1
-					table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c3, 0x03), 6), c4)))
-				end
+	data = string.gsub(data, "[^" .. b64 .. "]", "")
+	local out = {}
+	for i = 1, #data, 4 do
+		local c1, c2, c3, c4 = string.sub(data, i, i + 3):byte(1, 4)
+		c1 = b64:find(string.char(c1), 1, true) - 1
+		c2 = b64:find(string.char(c2), 1, true) - 1
+		table.insert(out, string.char(bit.bor(bit.lshift(c1, 2), bit.rshift(c2, 4))))
+		c3 = b64:find(string.char(c3), 1, true)
+		if c3 then
+			c3 = c3 - 1
+			table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c2, 0x0F), 4), bit.rshift(c3, 2))))
+			c4 = b64:find(string.char(c4), 1, true)
+			if c4 then
+				c4 = c4 - 1
+				table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c3, 0x03), 6), c4)))
 			end
 		end
-		return table.concat(out)
 	end
+	return table.concat(out)
+end
+
+--- Tenta di usare la funzione nativa di Neovim, altrimenti usa il fallback.
+-- @param b64_data (string)
+-- @return (string) Dati decodificati.
+local function b64_decode(b64_data)
+	local ok, decoded = pcall(vim.fn.base64decode, b64_data)
+	if ok and decoded then
+		return decoded
+	end
+	return lua_b64_decode(b64_data)
 end
 
 --- Crea la sequenza di escape per renderizzare un'immagine da dati base64.

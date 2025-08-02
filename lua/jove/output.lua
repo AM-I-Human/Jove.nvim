@@ -109,13 +109,14 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 	file:close()
 
 	-- Scegli il comando per stampare il file in base al sistema operativo
-	local print_cmd, exit_cmd
+	local term_cmd
 	if vim.fn.has("win32") == 1 then
-		print_cmd = "type " .. vim.fn.shellescape(temp_file)
-		exit_cmd = " & exit" -- Per cmd.exe
+		-- Forza l'uso di cmd.exe per evitare l'output di PowerShell Job.
+		-- Il comando 'type' di cmd.exe stampa il contenuto grezzo del file e /c lo chiude.
+		term_cmd = "cmd /c type " .. vim.fn.shellescape(temp_file)
 	else
-		print_cmd = "cat " .. vim.fn.shellescape(temp_file)
-		exit_cmd = "; exit" -- Per sh/bash
+		-- Per i sistemi Unix, 'cat' funziona bene e '; exit' assicura che la shell si chiuda.
+		term_cmd = "cat " .. vim.fn.shellescape(temp_file) .. "; exit"
 	end
 
 	-- TODO: Calcolare le dimensioni della finestra in base alla dimensione dell'immagine (se possibile)
@@ -139,7 +140,7 @@ local function render_image(bufnr, start_row, end_row, jupyter_msg)
 	local buf = vim.api.nvim_create_buf(false, true)
 	local win = vim.api.nvim_open_win(buf, true, win_opts)
 	vim.api.nvim_set_current_win(win)
-	vim.cmd("terminal " .. print_cmd .. exit_cmd)
+	vim.cmd("terminal " .. term_cmd)
 
 	-- Torna alla finestra originale
 	vim.api.nvim_set_current_win(parent_win)

@@ -1,7 +1,6 @@
 -- lua/jove/output.lua
 local M = {}
 local log = require("jove.log")
-local term_image_adapter = require("jove.term-image.adapter")
 --- Pulisce una stringa dai codici di escape ANSI e da altri caratteri non stampabili.
 -- @param str La stringa da pulire.
 -- @return La stringa pulita.
@@ -42,10 +41,7 @@ local function render_accumulated_output(bufnr)
 	end
 
 	local row = output_data.end_row
-	local virt_lines_chunks = {}
-	for _, line_info in ipairs(output_data.lines) do
-		table.insert(virt_lines_chunks, { { line_info.text, line_info.highlight } })
-	end
+	local virt_lines_chunks = output_data.lines
 
 	-- Pulisce l'output composito precedente sulla riga di destinazione
 	if line_marks[bufnr] and line_marks[bufnr][row] then
@@ -63,96 +59,134 @@ local function render_accumulated_output(bufnr)
 	line_marks[bufnr][row] = mark_id
 end
 
-local function add_output_lines(bufnr, end_row, text_lines, opts)
-	opts = opts or {}
+local function add_output_lines(bufnr, end_row, lines_of_chunks)
 	if not execution_outputs[bufnr] then
 		execution_outputs[bufnr] = { end_row = end_row, lines = {} }
 	end
 
-	for _, line in ipairs(text_lines) do
-		table.insert(execution_outputs[bufnr].lines, { text = line, highlight = opts.highlight or "Comment" })
+	for _, line_chunks in ipairs(lines_of_chunks) do
+		table.insert(execution_outputs[bufnr].lines, line_chunks)
 	end
 
 	render_accumulated_output(bufnr)
 end
 
+local highlights_cache = {}
+
+--- Converte un output ANSI (da chafa) in un formato per il testo virtuale di Neovim.
+local function parse_ansi_to_virt_text(ansi_text)
+	local lines = vim.split(ansi_text, "\n")
+	local virt_lines = {}
+	local current_fg = nil
+	local current_bg = nil
+
+	for _, line in ipairs(lines) do
+		local virt_line = {}
+		local remaining_line = line
+		while #remaining_line > 0 do
+			local s, e, seq = string.find(remaining_line, "\27%[.-m")
+			local text_chunk = s and string.sub(remaining_line, 1, s - 1) or remaining_line
+
+			if #text_chunk > 0 then
+				local hl_group = "Normal"
+				if current_fg or current_bg then
+					local fg_hex = current_fg and string.format("#%02x%02x%02x", current_fg[1], current_fg[2], current_fg[3])
+						or "NONE"
+					local bg_hex = current_bg and string.format("#%02x%02x%02x", current_bg[1], current_bg[2], current_bg[3])
+						or "NONE"
+					hl_group = "JoveImg_" .. (fg_hex):gsub("#", "") .. "_" .. (bg_hex):gsub("#", "")
+
+					if not highlights_cache[hl_group] then
+						local hl_opts = {}
+						if fg_hex ~= "NONE" then
+							hl_opts.fg = fg_hex
+						end
+						if bg_hex ~= "NONE" then
+							hl_opts.bg = bg_hex
+						end
+						vim.api.nvim_set_hl(0, hl_group, hl_opts)
+						highlights_cache[hl_group] = true
+					end
+				end
+				table.insert(virt_line, { text_chunk, hl_group })
+			end
+
+			if not s then
+				break
+			end
+			remaining_line = string.sub(remaining_line, e + 1)
+			local params_str = seq:match("%[(.*)m")
+			if params_str then
+				local params = {}
+				for p in string.gmatch(params_str, "%d+") do
+					table.insert(params, tonumber(p))
+				end
+				local i = 1
+				while i <= #params do
+					local p = params[i]
+					if p == 0 then
+						current_fg, current_bg = nil, nil
+					elseif p == 38 and params[i + 1] == 2 then
+						current_fg = { params[i + 2], params[i + 3], params[i + 4] }
+						i = i + 4
+					elseif p == 48 and params[i + 1] == 2 then
+						current_bg = { params[i + 2], params[i + 3], params[i + 4] }
+						i = i + 4
+					end
+					i = i + 1
+				end
+			end
+		end
+		table.insert(virt_lines, virt_line)
+	end
+	return virt_lines
+end
+
 local function render_image(bufnr, start_row, end_row, jupyter_msg)
+	if vim.fn.executable("chafa") ~= 1 then
+		log.add(vim.log.levels.ERROR, "'chafa' non trovato. Impossibile renderizzare l'immagine.")
+		return false
+	end
+
 	local data = jupyter_msg.content.data
 	local b64_data = data["image/png"] or data["image/jpeg"] or data["image/gif"]
 	if not b64_data then
 		return false
 	end
 
-	local sequence = term_image_adapter.render(b64_data)
-	if not sequence or sequence == "" then
-		log.add(
-			vim.log.levels.WARN,
-			"[jove] L'adattatore per immagini non ha prodotto una sequenza. Il rendering è annullato."
-		)
+	clear_range(bufnr, start_row, end_row)
+	execution_outputs[bufnr] = nil
+
+	local decoded_data
+	pcall(function()
+		decoded_data = vim.fn.base64decode(b64_data)
+	end)
+	if not decoded_data then
+		log.add(vim.log.levels.ERROR, "Errore durante la decodifica base64 dell'immagine.")
 		return false
 	end
 
-	-- Pulisce l'output virtuale precedente sulla riga di esecuzione
-	clear_range(bufnr, start_row, end_row)
-	if execution_outputs[bufnr] then
-		execution_outputs[bufnr] = nil
+	local temp_file = vim.fn.tempname()
+	local file = io.open(temp_file, "wb")
+	if not file then
+		return false
+	end
+	file:write(decoded_data)
+	file:close()
+
+	local width = 80 -- TODO: Rendere configurabile o dinamico
+	local height = 24
+	local chafa_cmd = string.format("chafa -f symbols --size %dx%d %s", width, height, vim.fn.shellescape(temp_file))
+	local ansi_output = vim.fn.system(chafa_cmd)
+	vim.fn.delete(temp_file)
+
+	if not ansi_output or ansi_output == "" then
+		log.add(vim.log.levels.ERROR, "Chafa non ha prodotto output.")
+		return false
 	end
 
-	-- TODO: Calcolare le dimensioni della finestra in base alla dimensione dell'immagine (se possibile)
-	local win_height = 20
-	local win_width = 80
-	local parent_win = vim.api.nvim_get_current_win()
-	local win_opts = {
-		relative = "win",
-		win = parent_win,
-		width = win_width,
-		height = win_height,
-		row = vim.fn.winline() - 1,
-		col = vim.fn.wincol() + 3,
-		style = "minimal",
-		border = "rounded",
-		title = "Image Preview",
-		title_pos = "center",
-	}
-
-	-- Crea una finestra flottante per ospitare il terminale
-	local buf = vim.api.nvim_create_buf(false, true)
-	local win = vim.api.nvim_open_win(buf, true, win_opts)
-
-	-- Mappa 'q' per chiudere la finestra in caso di problemi
-	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
-
-	-- Avvia un terminale vuoto. Invieremo i dati direttamente al suo processo.
-	vim.api.nvim_set_current_win(win)
-	vim.cmd("terminal")
-
-	-- Poiché l'avvio del terminale e l'assegnazione di `vim.b.terminal_job_id` sono asincroni,
-	-- usiamo vim.schedule per attendere che l'ID del job sia disponibile.
-	vim.schedule(function()
-		local job_id = vim.b.terminal_job_id
-		if job_id and job_id > 0 then
-			log.add(vim.log.levels.INFO, "Invio sequenza immagine al canale del terminale: " .. job_id)
-			-- Invia la sequenza di escape grezza direttamente al TTY del terminale.
-			-- Questo bypassa la shell (cmd, powershell) e le sue interpretazioni.
-			vim.api.nvim_chan_send(job_id, sequence)
-			-- Chiude automaticamente la finestra dopo un breve ritardo per permettere il rendering
-			vim.defer_fn(function()
-				if vim.api.nvim_win_is_valid(win) then
-					vim.api.nvim_win_close(win, true)
-				end
-			end, 1500)
-		else
-			log.add(vim.log.levels.ERROR, "Impossibile ottenere il job_id del terminale per inviare l'immagine.")
-			if vim.api.nvim_win_is_valid(win) then
-				vim.api.nvim_win_close(win, true)
-			end
-		end
-		-- Assicura di tornare alla finestra originale
-		if vim.api.nvim_win_is_valid(parent_win) then
-			vim.api.nvim_set_current_win(parent_win)
-		end
-	end)
-
+	local virt_lines = parse_ansi_to_virt_text(ansi_output)
+	add_output_lines(bufnr, end_row, virt_lines)
 	return true
 end
 
@@ -165,11 +199,16 @@ local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
 	local exec_count = jupyter_msg.content.execution_count
 	local cleaned_text = clean_string(text_plain)
 	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
+
 	if #lines > 0 then
 		if with_prompt and exec_count then
 			lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
 		end
-		add_output_lines(bufnr, end_row, lines, { highlight = "String" })
+		local lines_of_chunks = {}
+		for _, line in ipairs(lines) do
+			table.insert(lines_of_chunks, { { line, "String" } })
+		end
+		add_output_lines(bufnr, end_row, lines_of_chunks)
 	end
 end
 
@@ -181,7 +220,11 @@ function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 	local cleaned_text = clean_string(text)
 	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
 	if #lines > 0 then
-		add_output_lines(bufnr, end_row, lines, { highlight = "Comment" })
+		local lines_of_chunks = {}
+		for _, line in ipairs(lines) do
+			table.insert(lines_of_chunks, { { line, "Comment" } })
+		end
+		add_output_lines(bufnr, end_row, lines_of_chunks)
 	end
 end
 
@@ -246,7 +289,12 @@ function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 		for _, line in ipairs(traceback) do
 			table.insert(cleaned_traceback, clean_string(line))
 		end
-		add_output_lines(bufnr, end_row, cleaned_traceback, { highlight = "ErrorMsg" })
+
+		local lines_of_chunks = {}
+		for _, line in ipairs(cleaned_traceback) do
+			table.insert(lines_of_chunks, { { line, "ErrorMsg" } })
+		end
+		add_output_lines(bufnr, end_row, lines_of_chunks)
 	end
 end
 

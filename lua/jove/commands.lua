@@ -201,6 +201,26 @@ function M.show_log_cmd()
 	log.show()
 end
 
+--- Comando per renderizzare un'immagine inline.
+function M.render_image_cmd(args)
+	local image_path = args.fargs[1]
+	if not image_path or image_path == "" then
+		log.add(vim.log.levels.ERROR, "Percorso dell'immagine non specificato.")
+		return
+	end
+
+	-- Se il percorso non è assoluto, rendilo relativo alla directory di lavoro corrente.
+	if not vim.fn.isabs(image_path) then
+		image_path = vim.fn.getcwd() .. "/" .. image_path
+	end
+
+	local image_renderer = require("jove.image_renderer")
+	local bufnr = vim.api.nvim_get_current_buf()
+	local lineno = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+
+	image_renderer.render_image(bufnr, lineno, image_path)
+end
+
 -- =========================================================================
 -- REGISTRAZIONE DEI COMANDI
 -- =========================================================================
@@ -261,6 +281,12 @@ vim.api.nvim_create_user_command("JoveHistory", M.history_cmd, {
 vim.api.nvim_create_user_command("JoveLog", M.show_log_cmd, {
 	nargs = 0,
 	desc = "Mostra i log di Jove in un nuovo buffer.",
+})
+
+vim.api.nvim_create_user_command("JoveRenderImage", M.render_image_cmd, {
+	nargs = 1,
+	complete = "file",
+	desc = "Renderizza un'immagine inline sulla riga corrente (protocollo iTerm2).",
 })
 
 return M

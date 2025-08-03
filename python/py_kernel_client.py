@@ -108,29 +108,6 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
-    def _render_to_ansi(self, img, target_width):
-        w, h = img.size
-        aspect_ratio = h / w
-        new_w = target_width
-        new_h_chars = int(new_w * aspect_ratio / 2)
-        new_h_pixels = new_h_chars * 2
-        if new_h_pixels == 0:
-            return None
-
-        resized_img = img.resize((new_w, new_h_pixels), Image.Resampling.LANCZOS)
-        ansi_lines = []
-        for y in range(0, new_h_pixels, 2):
-            line_str = []
-            for x in range(new_w):
-                top_r, top_g, top_b = resized_img.getpixel((x, y))
-                bot_r, bot_g, bot_b = resized_img.getpixel((x, y + 1))
-                ansi_esc = f"\x1b[38;2;{top_r};{top_g};{top_b}m"
-                ansi_esc += f"\x1b[48;2;{bot_r};{bot_g};{bot_b}m"
-                ansi_esc += "▄"
-                line_str.append(ansi_esc)
-            ansi_lines.append("".join(line_str) + "\x1b[0m")
-        return "\n".join(ansi_lines)
-
     def _render_to_sixel(self, img, target_width):
         if not SixelWriter:
             log_message("libsixel-python not installed. Cannot use Sixel renderer.")
@@ -166,21 +143,16 @@ class KernelClient:
             image_data = base64.b64decode(b64_data)
             img = Image.open(io.BytesIO(image_data)).convert("RGB")
             
-            output_str = None
-            output_type = None
-
             if self.image_renderer == 'sixel':
                 output_str = self._render_to_sixel(img, target_width)
-                output_type = "image_sixel"
-            
-            # Fallback to ANSI if Sixel fails or is not chosen
-            if not output_str:
-                output_str = self._render_to_ansi(img, target_width)
-                output_type = "image_ansi"
+                if output_str:
+                    self.send_to_lua({"type": "image_sixel", "payload": output_str})
+                    return True
 
-            if output_str:
-                self.send_to_lua({"type": output_type, "payload": output_str})
-                return True
+            # Fallback to iTerm2 if Sixel fails or is not the chosen renderer.
+            # For iTerm2, we just send the original base64 data.
+            self.send_to_lua({"type": "image_iip", "payload": b64_data})
+            return True
 
         except Exception as e:
             log_message(f"Error processing image with Pillow: {e}")

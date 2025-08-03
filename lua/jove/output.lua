@@ -71,84 +71,60 @@ local function add_output_lines(bufnr, end_row, lines_of_chunks)
 	render_accumulated_output(bufnr)
 end
 
-local highlights_cache = {}
-
---- Converte un output ANSI (da chafa) in un formato per il testo virtuale di Neovim.
-local function parse_ansi_to_virt_text(ansi_text)
-	local lines = vim.split(ansi_text, "\n")
-	local virt_lines = {}
-	local current_fg = nil
-	local current_bg = nil
-
-	for _, line in ipairs(lines) do
-		local virt_line = {}
-		local remaining_line = line
-		while #remaining_line > 0 do
-			local s, e, seq = string.find(remaining_line, "(\27%[.-m)")
-			local text_chunk = s and string.sub(remaining_line, 1, s - 1) or remaining_line
-
-			if #text_chunk > 0 then
-				local hl_group = "Normal"
-				if current_fg or current_bg then
-					local fg_hex = current_fg and string.format("#%02x%02x%02x", current_fg[1], current_fg[2], current_fg[3])
-						or "NONE"
-					local bg_hex = current_bg and string.format("#%02x%02x%02x", current_bg[1], current_bg[2], current_bg[3])
-						or "NONE"
-					hl_group = "JoveImg_" .. (fg_hex):gsub("#", "") .. "_" .. (bg_hex):gsub("#", "")
-
-					if not highlights_cache[hl_group] then
-						local hl_opts = {}
-						if fg_hex ~= "NONE" then
-							hl_opts.fg = fg_hex
-						end
-						if bg_hex ~= "NONE" then
-							hl_opts.bg = bg_hex
-						end
-						vim.api.nvim_set_hl(0, hl_group, hl_opts)
-						highlights_cache[hl_group] = true
-					end
-				end
-				table.insert(virt_line, { text_chunk, hl_group })
-			end
-
-			if not s then
-				break
-			end
-			remaining_line = string.sub(remaining_line, e + 1)
-			local params_str = seq:match("%[(.*)m")
-			if params_str then
-				local params = {}
-				for p in string.gmatch(params_str, "%d+") do
-					table.insert(params, tonumber(p))
-				end
-				local i = 1
-				while i <= #params do
-					local p = params[i]
-					if p == 0 then
-						current_fg, current_bg = nil, nil
-					elseif p == 38 and params[i + 1] == 2 then
-						current_fg = { params[i + 2], params[i + 3], params[i + 4] }
-						i = i + 4
-					elseif p == 48 and params[i + 1] == 2 then
-						current_bg = { params[i + 2], params[i + 3], params[i + 4] }
-						i = i + 4
-					end
-					i = i + 1
-				end
-			end
-		end
-		table.insert(virt_lines, virt_line)
-	end
-	return virt_lines
-end
-
---- Renderizza una stringa ANSI come testo virtuale. Chiamata da kernel.lua
-function M.render_ansi_image(bufnr, start_row, end_row, ansi_string)
+--- Renderizza un'immagine usando il protocollo iTerm2 (IIP) in una finestra di terminale flottante.
+function M.render_iip_image(bufnr, start_row, end_row, b64_data)
 	clear_range(bufnr, start_row, end_row)
 	execution_outputs[bufnr] = nil
 
-	local virt_lines = parse_ansi_to_virt_text(ansi_string)
-	add_output_lines(bufnr, end_row, virt_lines)
+	local term_image_adapter = require("jove.term-image.adapter")
+	local sequence = term_image_adapter.render(b64_data, {})
+	if not sequence or sequence == "" then
+		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini o l'adattatore ha fallito.")
+		return
+	end
+
+	local temp_file = vim.fn.tempname()
+	local file, err = io.open(temp_file, "wb")
+	if not file then
+		log.add(vim.log.levels.ERROR, "Impossibile creare il file temporaneo per l'immagine: " .. tostring(err))
+		return
+	end
+	file:write(sequence)
+	file:close()
+
+	local print_cmd
+	if vim.fn.has("win32") == 1 then
+		print_cmd = "cmd /c type " .. vim.fn.shellescape(temp_file)
+	else
+		print_cmd = "cat " .. vim.fn.shellescape(temp_file) .. "; exit"
+	end
+
+	local win_height = 30 -- Valori di default
+	local win_width = 120
+	local parent_win = vim.api.nvim_get_current_win()
+	local win_opts = {
+		relative = "win",
+		win = parent_win,
+		width = win_width,
+		height = win_height,
+		row = vim.fn.winline() - 1,
+		col = vim.fn.wincol() + 3,
+		style = "minimal",
+		border = "rounded",
+	}
+
+	local term_buf = vim.api.nvim_create_buf(false, true)
+	local term_win = vim.api.nvim_open_win(term_buf, true, win_opts)
+	vim.api.nvim_set_current_win(term_win)
+	vim.cmd("terminal " .. print_cmd)
+
+	vim.api.nvim_set_current_win(parent_win)
+	vim.defer_fn(function()
+		vim.fn.delete(temp_file)
+		if vim.api.nvim_win_is_valid(term_win) then
+			vim.api.nvim_win_close(term_win, true)
+		end
+	end, 2000) -- Aumentato per immagini grandi
 end
 
 --- Renderizza una stringa Sixel in una finestra di terminale flottante.

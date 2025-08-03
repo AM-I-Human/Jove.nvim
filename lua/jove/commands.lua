@@ -210,7 +210,7 @@ function M.render_image_cmd(args)
 	end
 
 	-- Se il percorso non è assoluto, rendilo relativo alla directory di lavoro corrente.
-	if not vim.fn.isabs(image_path) then
+	if not vim.fs.is_absolute(image_path) then
 		image_path = vim.fn.getcwd() .. "/" .. image_path
 	end
 

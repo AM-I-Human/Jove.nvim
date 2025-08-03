@@ -210,7 +210,14 @@ function M.render_image_cmd(args)
 	end
 
 	-- Se il percorso non è assoluto, rendilo relativo alla directory di lavoro corrente.
-	if not vim.fs.is_absolute(image_path) then
+	-- Utilizziamo un controllo manuale per la compatibilità con versioni di Neovim più vecchie.
+	local is_abs
+	if vim.fn.has("win32") == 1 then
+		is_abs = string.match(image_path, "^[a-zA-Z]:[/\\]") or string.match(image_path, "^[/\\][/\\]")
+	else
+		is_abs = string.match(image_path, "^/")
+	end
+	if not is_abs then
 		image_path = vim.fn.getcwd() .. "/" .. image_path
 	end
 

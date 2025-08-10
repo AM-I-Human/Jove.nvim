@@ -151,39 +151,40 @@ function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
 		for _, line in ipairs(lines) do
 			table.insert(lines_of_chunks, { { line, "Comment" } })
 		end
-		add_output_lines(bufnr, end_row, lines_of_chunks)
+		add_output_lines(cell_id, lines_of_chunks)
 	end
 end
 
-function M.render_execute_result(bufnr, start_row, end_row, jupyter_msg)
+function M.render_execute_result(cell_id, jupyter_msg)
 	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
 	-- Questa funzione gestisce solo il fallback testuale.
-	add_text_plain_output(bufnr, end_row, jupyter_msg, true) -- with prompt
+	add_text_plain_output(cell_id, jupyter_msg, true) -- with prompt
 end
 
-function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
+function M.render_input_prompt(cell_id, jupyter_msg)
 	local exec_count = jupyter_msg.content.execution_count
-	if not exec_count then
+	local cell_info = cell_marks[cell_id]
+	if not exec_count or not cell_info then
 		return
 	end
 
-	-- Clear all previous marks (prompts and outputs) in the execution range.
-	clear_range(bufnr, start_row, end_row)
-	-- Azzera l'accumulatore di output per la nuova esecuzione
-	execution_outputs[bufnr] = nil
+	clear_cell_output(cell_id)
 
-	if not line_prompt_marks[bufnr] then
-		line_prompt_marks[bufnr] = {}
+	local start_row, _ = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.start_mark, {})
+	local end_row, _ = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+
+	if not start_row or not end_row then
+		return
 	end
 
 	if start_row == end_row then -- Single-line execution
 		local prompt_text = string.format("In[%d]: ", exec_count)
-		local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, {
+		local mark_id = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, start_row, 0, {
 			virt_text = { { prompt_text, "Question" } },
 			virt_text_pos = "inline",
 			right_gravity = false,
 		})
-		line_prompt_marks[bufnr][start_row] = mark_id
+		table.insert(cell_info.output_marks, mark_id)
 	else -- Multi-line execution
 		local prompt_text = string.format("In[%d]:", exec_count)
 		local bracket_char = " ┃" -- space before for padding
@@ -191,24 +192,26 @@ function M.render_input_prompt(bufnr, start_row, end_row, jupyter_msg)
 		local padding = string.rep(" ", prompt_width)
 
 		-- First line: Prompt + Bracket
-		line_prompt_marks[bufnr][start_row] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, {
+		local first_line_mark = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, start_row, 0, {
 			virt_text = { { prompt_text, "Question" }, { bracket_char, "Question" } },
 			virt_text_pos = "inline",
 			right_gravity = false,
 		})
+		table.insert(cell_info.output_marks, first_line_mark)
 
 		-- Subsequent lines: Padding + Bracket
 		for i = start_row + 1, end_row do
-			line_prompt_marks[bufnr][i] = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, i, 0, {
+			local line_mark = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, i, 0, {
 				virt_text = { { padding, "Question" }, { bracket_char, "Question" } },
 				virt_text_pos = "inline",
 				right_gravity = false,
 			})
+			table.insert(cell_info.output_marks, line_mark)
 		end
 	end
 end
 
-function M.render_error(bufnr, start_row, end_row, jupyter_msg)
+function M.render_error(cell_id, jupyter_msg)
 	local traceback = jupyter_msg.content.traceback
 	if traceback then
 		local cleaned_traceback = {}
@@ -220,14 +223,14 @@ function M.render_error(bufnr, start_row, end_row, jupyter_msg)
 		for _, line in ipairs(cleaned_traceback) do
 			table.insert(lines_of_chunks, { { line, "ErrorMsg" } })
 		end
-		add_output_lines(bufnr, end_row, lines_of_chunks)
+		add_output_lines(cell_id, lines_of_chunks)
 	end
 end
 
-function M.render_display_data(bufnr, start_row, end_row, jupyter_msg)
+function M.render_display_data(cell_id, jupyter_msg)
 	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
 	-- Questa funzione gestisce solo il fallback testuale.
-	add_text_plain_output(bufnr, end_row, jupyter_msg, false) -- without prompt
+	add_text_plain_output(cell_id, jupyter_msg, false) -- without prompt
 end
 
 --- NUOVO ---

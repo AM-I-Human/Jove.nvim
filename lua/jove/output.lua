@@ -31,6 +31,7 @@ function M.create_cell_markers(bufnr, start_row, end_row)
 		start_mark = start_mark_id,
 		end_mark = end_mark_id,
 		output_marks = {},
+		prompt_marks = {},
 		accumulated_lines = {},
 	}
 	return start_mark_id -- Usiamo l'ID del marcatore di inizio come ID della cella
@@ -176,7 +177,12 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 		return
 	end
 
-	clear_cell_output(cell_id)
+	-- Pulisce tutti i marcatori visivi (output e prompt) per questa cella
+	clear_cell_output(cell_id) -- Pulisce l'output precedente
+	for _, mark_id in ipairs(cell_info.prompt_marks) do
+		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
+	end
+	cell_info.prompt_marks = {}
 
 	local pos_start = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.start_mark, {})
 	local pos_end = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
@@ -195,7 +201,7 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 			virt_text_pos = "inline",
 			right_gravity = false,
 		})
-		table.insert(cell_info.output_marks, mark_id)
+		table.insert(cell_info.prompt_marks, mark_id)
 	else -- Multi-line execution
 		local prompt_text = string.format("In[%d]:", exec_count)
 		local bracket_char = " ┃" -- space before for padding
@@ -208,7 +214,7 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 			virt_text_pos = "inline",
 			right_gravity = false,
 		})
-		table.insert(cell_info.output_marks, first_line_mark)
+		table.insert(cell_info.prompt_marks, first_line_mark)
 
 		-- Subsequent lines: Padding + Bracket
 		for i = start_row + 1, end_row do
@@ -217,7 +223,7 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 				virt_text_pos = "inline",
 				right_gravity = false,
 			})
-			table.insert(cell_info.output_marks, line_mark)
+			table.insert(cell_info.prompt_marks, line_mark)
 		end
 	end
 end

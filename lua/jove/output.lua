@@ -244,6 +244,32 @@ function M.render_display_data(cell_id, jupyter_msg)
 	add_text_plain_output(cell_id, jupyter_msg, false) -- without prompt
 end
 
+--- Trova e pulisce una cella esistente in un dato range.
+function M.find_and_clear_cell_at_range(bufnr, start_row, end_row)
+	for cell_id, cell_info in pairs(cell_marks) do
+		if cell_info.bufnr == bufnr then
+			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
+			local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.end_mark, {})
+
+			if pos_start and #pos_start > 0 and pos_end and #pos_end > 0 then
+				if pos_start[1] == start_row and pos_end[1] == end_row then
+					-- Pulisce i marcatori visuali (output/prompt) dal buffer
+					for _, mark_id in ipairs(cell_info.output_marks) do
+						pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
+					end
+					-- Rimuove i marcatori invisibili di inizio e fine
+					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.start_mark)
+					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.end_mark)
+
+					-- Rimuove la cella dalla nostra tabella di tracciamento
+					cell_marks[cell_id] = nil
+					break -- Trovata e rimossa, esci dal loop
+				end
+			end
+		end
+	end
+end
+
 --- NUOVO ---
 --- Mostra la risposta di una inspect_request in una finestra flottante.
 function M.render_inspect_reply(jupyter_msg)

@@ -33,6 +33,7 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
     - [x] Lua visualizza l'output come testo virtuale colorato.
 
 - [ ] **Implementare la Pulizia dell'Output:**
+  - [x] Pulire l'output di una cella prima di rieseguirla per evitare la duplicazione degli indicatori.
   - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.
   - [ ] Implementare una funzione in `lua/jove/output.lua` per rimuovere gli `extmarks` associati a un range di righe specifico o a tutto il buffer.
 

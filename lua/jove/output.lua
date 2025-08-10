@@ -118,6 +118,9 @@ local function add_output_lines(cell_id, lines_of_chunks)
 end
 
 local function add_text_plain_output(cell_id, jupyter_msg, with_prompt)
+	if not jupyter_msg or not jupyter_msg.content or not jupyter_msg.content.data then
+		return
+	end
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	if not (text_plain and text_plain ~= "") then
 		return
@@ -135,11 +138,14 @@ local function add_text_plain_output(cell_id, jupyter_msg, with_prompt)
 		for _, line in ipairs(lines) do
 			table.insert(lines_of_chunks, { { line, "String" } })
 		end
-		add_output_lines(bufnr, end_row, lines_of_chunks)
+		add_output_lines(cell_id, lines_of_chunks)
 	end
 end
 
-function M.render_stream(bufnr, start_row, end_row, jupyter_msg)
+function M.render_stream(cell_id, jupyter_msg)
+	if not jupyter_msg or not jupyter_msg.content then
+		return
+	end
 	local text = jupyter_msg.content.text
 	if not text or text == "" then
 		return

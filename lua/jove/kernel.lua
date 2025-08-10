@@ -183,35 +183,20 @@ function M.handle_py_client_message(kernel_name, json_line)
 		end
 	elseif msg_type == "image_iip" then
 		local k_info = kernels_config[kernel_name]
-		if k_info.current_execution_bufnr then
-			output.render_iip_image(
-				k_info.current_execution_bufnr,
-				k_info.current_execution_start_row,
-				k_info.current_execution_end_row,
-				data.payload
-			)
+		if k_info.current_execution_cell_id then
+			output.render_iip_image(k_info.current_execution_cell_id, data.payload)
 		end
 	elseif msg_type == "image_sixel" then
 		local k_info = kernels_config[kernel_name]
-		if k_info.current_execution_bufnr then
-			output.render_sixel_image(
-				k_info.current_execution_bufnr,
-				k_info.current_execution_start_row,
-				k_info.current_execution_end_row,
-				data.payload
-			)
+		if k_info.current_execution_cell_id then
+			output.render_sixel_image(k_info.current_execution_cell_id, data.payload)
 		end
-	elseif msg_type == "iopub" and kernels_config[kernel_name].current_execution_bufnr then
+	elseif msg_type == "iopub" and kernels_config[kernel_name].current_execution_cell_id then
 		local iopub_msg_type = jupyter_msg.header.msg_type
 		local handler = output.iopub_handlers[iopub_msg_type]
 		if handler then
 			local k_info = kernels_config[kernel_name]
-			handler(
-				k_info.current_execution_bufnr,
-				k_info.current_execution_start_row,
-				k_info.current_execution_end_row,
-				jupyter_msg
-			)
+			handler(k_info.current_execution_cell_id, jupyter_msg)
 		end
 	end
 end
@@ -227,9 +212,8 @@ function M.execute_cell(kernel_name, cell_content, bufnr, start_row, end_row)
 		log.add(vim.log.levels.WARN, "Kernel '" .. kernel_name .. "' è occupato.")
 		return
 	end
-	kernel_info.current_execution_bufnr = bufnr
-	kernel_info.current_execution_start_row = start_row
-	kernel_info.current_execution_end_row = end_row
+	local cell_id = output.create_cell_markers(bufnr, start_row, end_row)
+	kernel_info.current_execution_cell_id = cell_id
 	status.update_status(kernel_name, "busy")
 	M.send_to_py_client(kernel_name, { command = "execute", payload = message.create_execute_request(cell_content) })
 end

@@ -16,96 +16,108 @@ local function clean_string(str)
 end
 
 local NS_ID = vim.api.nvim_create_namespace("jove_output")
-local line_marks = {}
-local line_prompt_marks = {}
-local execution_outputs = {} -- Memorizza le linee di output accumulate per una data esecuzione
 
-local function clear_range(bufnr, start_row, end_row)
-	-- Clear all extmarks (prompts and outputs) in the given range.
-	-- `end_row + 1` is because the range is exclusive for the end line.
-	vim.api.nvim_buf_clear_namespace(bufnr, NS_ID, start_row, end_row + 1)
-	for row = start_row, end_row do
-		if line_marks[bufnr] then
-			line_marks[bufnr][row] = nil
-		end
-		if line_prompt_marks[bufnr] then
-			line_prompt_marks[bufnr][row] = nil
-		end
-	end
+-- Struttura per memorizzare gli extmarks per ogni cella
+-- La chiave è l'ID del primo extmark (start_mark_id)
+local cell_marks = {} -- { [cell_id] = { bufnr, start_mark, end_mark, output_marks = {} } }
+
+--- Crea i marcatori di inizio e fine per una nuova cella.
+function M.create_cell_markers(bufnr, start_row, end_row)
+	local start_mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, { right_gravity = false })
+	local end_mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, end_row, -1, { right_gravity = true })
+
+	cell_marks[start_mark_id] = {
+		bufnr = bufnr,
+		start_mark = start_mark_id,
+		end_mark = end_mark_id,
+		output_marks = {},
+		accumulated_lines = {},
+	}
+	return start_mark_id -- Usiamo l'ID del marcatore di inizio come ID della cella
 end
 
-local function render_accumulated_output(bufnr)
-	local output_data = execution_outputs[bufnr]
-	if not output_data or not output_data.lines or #output_data.lines == 0 then
+local function clear_cell_output(cell_id)
+	local cell_info = cell_marks[cell_id]
+	if not cell_info then
 		return
 	end
-
-	local row = output_data.end_row
-	local virt_lines_chunks = output_data.lines
-
-	-- Pulisce l'output composito precedente sulla riga di destinazione
-	if line_marks[bufnr] and line_marks[bufnr][row] then
-		pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, line_marks[bufnr][row])
-		line_marks[bufnr][row] = nil
+	for _, mark_id in ipairs(cell_info.output_marks) do
+		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
 	end
-
-	local mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, row, -1, {
-		virt_lines = virt_lines_chunks,
-		virt_lines_above = false,
-	})
-	if not line_marks[bufnr] then
-		line_marks[bufnr] = {}
-	end
-	line_marks[bufnr][row] = mark_id
+	cell_info.output_marks = {}
+	cell_info.accumulated_lines = {}
 end
 
-local function add_output_lines(bufnr, end_row, lines_of_chunks)
-	if not execution_outputs[bufnr] then
-		execution_outputs[bufnr] = { end_row = end_row, lines = {} }
+--- Renderizza un'immagine o altro output che occupa una singola linea virtuale.
+local function render_single_line_output(cell_id, sequence_text)
+	local cell_info = cell_marks[cell_id]
+	if not cell_info then
+		return
 	end
+	clear_cell_output(cell_id)
 
-	for _, line_chunks in ipairs(lines_of_chunks) do
-		table.insert(execution_outputs[bufnr].lines, line_chunks)
-	end
+	local _, end_row = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if not end_row then
+		return
+	end -- Marcatore potrebbe essere stato cancellato
+	local virt_lines = { { { sequence_text, "Normal" } } }
 
-	render_accumulated_output(bufnr)
+	local mark_id = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, end_row, -1, {
+		virt_lines = virt_lines,
+		virt_lines_above = false,
+	})
+	table.insert(cell_info.output_marks, mark_id)
 end
 
 --- Renderizza un'immagine usando il protocollo iTerm2 (IIP) come testo virtuale.
-function M.render_iip_image(bufnr, start_row, end_row, b64_data)
-	clear_range(bufnr, start_row, end_row)
-	execution_outputs[bufnr] = nil
-
+function M.render_iip_image(cell_id, b64_data)
 	local term_image_adapter = require("jove.term-image.adapter")
 	local sequence = term_image_adapter.render(b64_data, {})
 	if not sequence or sequence == "" then
 		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini o l'adattatore ha fallito.")
 		return
 	end
-
-	-- Inserisce l'intera sequenza di escape come una singola riga di testo virtuale.
-	-- Il terminale si occuperà di interpretarla e renderizzare l'immagine.
-	local virt_lines = { { { sequence, "Normal" } } }
-	add_output_lines(bufnr, end_row, virt_lines)
+	render_single_line_output(cell_id, sequence)
 end
 
 --- Renderizza una stringa Sixel come testo virtuale.
-function M.render_sixel_image(bufnr, start_row, end_row, sixel_string)
-	clear_range(bufnr, start_row, end_row)
-	execution_outputs[bufnr] = nil
-
+function M.render_sixel_image(cell_id, sixel_string)
 	if not sixel_string or sixel_string == "" then
 		log.add(vim.log.levels.WARN, "[Jove] Ricevuta stringa Sixel vuota.")
 		return
 	end
-
-	-- Inserisce l'intera sequenza Sixel come una singola riga di testo virtuale.
-	-- Il terminale la interpreterà.
-	local virt_lines = { { { sixel_string, "Normal" } } }
-	add_output_lines(bufnr, end_row, virt_lines)
+	render_single_line_output(cell_id, sixel_string)
 end
 
-local function add_text_plain_output(bufnr, end_row, jupyter_msg, with_prompt)
+local function add_output_lines(cell_id, lines_of_chunks)
+	local cell_info = cell_marks[cell_id]
+	if not cell_info then
+		return
+	end
+
+	-- Cancella i vecchi output di testo accumulato
+	for _, mark_id in ipairs(cell_info.output_marks) do
+		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
+	end
+	cell_info.output_marks = {}
+
+	for _, line_chunks in ipairs(lines_of_chunks) do
+		table.insert(cell_info.accumulated_lines, line_chunks)
+	end
+
+	local _, end_row = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if not end_row then
+		return
+	end
+
+	local mark_id = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, end_row, -1, {
+		virt_lines = cell_info.accumulated_lines,
+		virt_lines_above = false,
+	})
+	table.insert(cell_info.output_marks, mark_id)
+end
+
+local function add_text_plain_output(cell_id, jupyter_msg, with_prompt)
 	local text_plain = jupyter_msg.content.data["text/plain"]
 	if not (text_plain and text_plain ~= "") then
 		return

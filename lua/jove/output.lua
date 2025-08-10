@@ -56,10 +56,11 @@ local function render_single_line_output(cell_id, sequence_text)
 	end
 	clear_cell_output(cell_id)
 
-	local _, end_row = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
-	if not end_row then
+	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if not pos or #pos == 0 then
 		return
 	end -- Marcatore potrebbe essere stato cancellato
+	local end_row = pos[1]
 	local virt_lines = { { { sequence_text, "Normal" } } }
 
 	local mark_id = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, end_row, -1, {
@@ -105,10 +106,11 @@ local function add_output_lines(cell_id, lines_of_chunks)
 		table.insert(cell_info.accumulated_lines, line_chunks)
 	end
 
-	local _, end_row = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
-	if not end_row then
+	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if not pos or #pos == 0 then
 		return
 	end
+	local end_row = pos[1]
 
 	local mark_id = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, end_row, -1, {
 		virt_lines = cell_info.accumulated_lines,
@@ -176,12 +178,15 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 
 	clear_cell_output(cell_id)
 
-	local start_row, _ = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.start_mark, {})
-	local end_row, _ = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	local pos_start = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.start_mark, {})
+	local pos_end = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
 
-	if not start_row or not end_row then
+	if not pos_start or #pos_start == 0 or not pos_end or #pos_end == 0 then
 		return
 	end
+
+	local start_row = pos_start[1]
+	local end_row = pos_end[1]
 
 	if start_row == end_row then -- Single-line execution
 		local prompt_text = string.format("In[%d]: ", exec_count)

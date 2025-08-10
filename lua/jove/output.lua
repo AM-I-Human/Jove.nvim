@@ -268,6 +268,9 @@ function M.find_and_clear_cell_at_range(bufnr, start_row, end_row)
 					for _, mark_id in ipairs(cell_info.output_marks) do
 						pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
 					end
+					for _, mark_id in ipairs(cell_info.prompt_marks) do
+						pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
+					end
 					-- Rimuove i marcatori invisibili di inizio e fine
 					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.start_mark)
 					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.end_mark)

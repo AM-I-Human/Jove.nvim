@@ -98,3 +98,16 @@ Questa fase mira a fornire un supporto trasparente per la modifica dei file `.ip
 - [ ] **Persistenza e Riconnessione (Avanzato):**
   - [ ] Studiare la possibilità di non terminare i kernel alla chiusura di Neovim (magari tramite un'opzione).
   - [ ] Aggiungere un comando `:JoveConnect` per potersi ricollegare a un kernel già in esecuzione tramite il suo file di connessione.
+
+## Fase 5: Miglioramenti Tecnici e Refactoring
+
+- [ ] **Ottimizzare il Comando di Ispezione (`:JoveInspect`):**
+  - [ ] Modificare `lua/jove/commands.lua` per inviare solo il codice della cella corrente invece dell'intero buffer, migliorando le prestazioni.
+
+- [ ] **Semplificare il Rilevamento del Percorso del Plugin:**
+  - [ ] Rimuovere la funzione duplicata `get_plugin_root` da `lua/jove/kernel.lua`.
+  - [ ] Utilizzare esclusivamente `vim.g.jove_plugin_root` definito in `lua/jove.lua` per centralizzare la logica.
+
+- [ ] **Migliorare la Gestione dei Marcatori di Cella:**
+  - [ ] Ristrutturare la tabella `cell_marks` in `lua/jove/output.lua` per raggruppare le celle per buffer (`bufnr`).
+  - [ ] Questo renderà più efficienti le operazioni di pulizia e aggiornamento, agendo solo sulle celle del buffer attivo.

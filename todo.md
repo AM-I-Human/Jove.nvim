@@ -46,10 +46,10 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
 
 Questa fase introduce un nuovo modo più interattivo di lavorare con il codice, ispirato ai notebook Jupyter, utilizzando split verticali per l'output.
 
-- [ ] **Implementare il Rilevamento e la Navigazione tra Celle:**
+- [x] **Implementare il Rilevamento e la Navigazione tra Celle:**
   - [ ] Creare un nuovo modulo, ad esempio `lua/jove/cells.lua`.
   - [x] Implementare funzioni per identificare i confini delle celle basandosi su marcatori Jupytext (es. `# %%`).
-  - [ ] Creare funzioni o mappature per l'utente per navigare tra le celle (es. `JoveNextCell`, `JovePreviousCell`).
+  - [x] Creare funzioni o mappature per l'utente per navigare tra le celle (es. `JoveNextCell`, `JovePreviousCell`).
 
 - [x] **Sviluppare la "Modalità di Esecuzione a Celle":**
   - [x] Creare un nuovo comando (es. `:JoveExecuteCell`) per eseguire la cella corrente.

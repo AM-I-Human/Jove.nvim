@@ -59,6 +59,36 @@ local function find_current_cell_boundaries(bufnr, cursor_row)
 	return cell_start_row, cell_end_row
 end
 
+--- Cerca il marcatore di cella Jupytext successivo o precedente.
+-- @param bufnr (integer) Il numero del buffer.
+-- @param start_row (integer) La riga da cui iniziare la ricerca (0-indexed).
+-- @param direction (integer) `1` per cercare in avanti, `-1` per cercare indietro.
+-- @return (integer|nil) La riga (0-indexed) del marcatore trovato, o nil.
+local function find_cell_marker(bufnr, start_row, direction)
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local cell_marker_pattern = "^#%s*%%%%"
+	local search_start, search_end, step
+
+	if direction > 0 then
+		search_start = start_row + 1
+		search_end = line_count - 1
+		step = 1
+	else
+		search_start = start_row - 1
+		search_end = 0
+		step = -1
+	end
+
+	for i = search_start, search_end, step do
+		local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+		if line:match(cell_marker_pattern) then
+			return i
+		end
+	end
+
+	return nil
+end
+
 --- Cerca di ottenere un kernel attivo. Se non ce n'è uno, ne avvia uno basato
 --- sul filetype e poi esegue la callback.
 local function run_with_kernel(callback)
@@ -188,6 +218,34 @@ function M.execute_jupytext_cell_cmd()
 			log.add(vim.log.levels.INFO, "Cella Jupytext vuota, nessun codice da eseguire.")
 		end
 	end)
+end
+
+-- Comando per muoversi alla cella successiva
+function M.next_cell_cmd()
+	local bufnr = vim.api.nvim_get_current_buf()
+	local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+
+	local next_marker_row = find_cell_marker(bufnr, cursor_row, 1)
+
+	if next_marker_row then
+		vim.api.nvim_win_set_cursor(0, { next_marker_row + 1, 0 }) -- set_cursor è 1-indexed
+	else
+		log.add(vim.log.levels.INFO, "Nessuna cella successiva trovata.")
+	end
+end
+
+-- Comando per muoversi alla cella precedente
+function M.previous_cell_cmd()
+	local bufnr = vim.api.nvim_get_current_buf()
+	local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+
+	local prev_marker_row = find_cell_marker(bufnr, cursor_row, -1)
+
+	if prev_marker_row then
+		vim.api.nvim_win_set_cursor(0, { prev_marker_row + 1, 0 }) -- set_cursor è 1-indexed
+	else
+		log.add(vim.log.levels.INFO, "Nessuna cella precedente trovata.")
+	end
 end
 
 -- Comando per ispezionare un oggetto
@@ -348,6 +406,16 @@ vim.api.nvim_create_user_command("JoveExecute", M.execute_code_cmd, {
 vim.api.nvim_create_user_command("JoveExecuteCell", M.execute_jupytext_cell_cmd, {
 	nargs = 0,
 	desc = "Esegue la cella Jupytext corrente (delimitata da '# %%').",
+})
+
+vim.api.nvim_create_user_command("JoveNextCell", M.next_cell_cmd, {
+	nargs = 0,
+	desc = "Sposta il cursore all'inizio della cella Jupytext successiva.",
+})
+
+vim.api.nvim_create_user_command("JovePreviousCell", M.previous_cell_cmd, {
+	nargs = 0,
+	desc = "Sposta il cursore all'inizio della cella Jupytext precedente.",
 })
 
 vim.api.nvim_create_user_command("JoveStatus", M.status_cmd, {

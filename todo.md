@@ -48,11 +48,11 @@ Questa fase introduce un nuovo modo più interattivo di lavorare con il codice, 
 
 - [ ] **Implementare il Rilevamento e la Navigazione tra Celle:**
   - [ ] Creare un nuovo modulo, ad esempio `lua/jove/cells.lua`.
-  - [ ] Implementare funzioni per identificare i confini delle celle basandosi su marcatori Jupytext (es. `# %%`).
+  - [x] Implementare funzioni per identificare i confini delle celle basandosi su marcatori Jupytext (es. `# %%`).
   - [ ] Creare funzioni o mappature per l'utente per navigare tra le celle (es. `JoveNextCell`, `JovePreviousCell`).
 
-- [ ] **Sviluppare la "Modalità di Esecuzione a Celle":**
-  - [ ] Creare un nuovo comando (es. `:JoveExecuteInCell`) che attivi questa modalità.
+- [x] **Sviluppare la "Modalità di Esecuzione a Celle":**
+  - [x] Creare un nuovo comando (es. `:JoveExecuteCell`) per eseguire la cella corrente.
   - [ ] Durante l'esecuzione, creare automaticamente uno split verticale.
   - [ ] La finestra a destra sarà un "buffer di output" dedicato e temporaneo per la cella eseguita.
   - [ ] Disabilitare il rendering del testo virtuale quando si usa questa modalità e reindirizzare tutto l'output al buffer di output.

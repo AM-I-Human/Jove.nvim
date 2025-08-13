@@ -250,6 +250,54 @@ function M.render_display_data(cell_id, jupyter_msg)
 	add_text_plain_output(cell_id, jupyter_msg, false) -- without prompt
 end
 
+--- Pulisce l'output (testo virtuale e prompt) per le celle che si sovrappongono a un dato range.
+-- @param bufnr (integer) Il numero del buffer.
+-- @param start_row (integer) La riga di inizio (0-indexed).
+-- @param end_row (integer) La riga di fine (0-indexed).
+function M.clear_output_in_range(bufnr, start_row, end_row)
+	local cells_to_clear = {}
+	for cell_id, cell_info in pairs(cell_marks) do
+		if cell_info.bufnr == bufnr then
+			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
+			local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.end_mark, {})
+
+			if pos_start and #pos_start > 0 and pos_end and #pos_end > 0 then
+				local cell_start_row = pos_start[1]
+				local cell_end_row = pos_end[1]
+
+				-- Controlla se il range della cella si sovrappone al range specificato
+				if math.max(cell_start_row, start_row) <= math.min(cell_end_row, end_row) then
+					table.insert(cells_to_clear, cell_id)
+				end
+			end
+		end
+	end
+
+	if #cells_to_clear == 0 then
+		log.add(vim.log.levels.INFO, "Nessuna cella Jove con output trovata nel range specificato.")
+		return
+	end
+
+	for _, cell_id in ipairs(cells_to_clear) do
+		local cell_info = cell_marks[cell_id]
+		if cell_info then
+			-- Pulisce i marcatori di output
+			for _, mark_id in ipairs(cell_info.output_marks) do
+				pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
+			end
+			cell_info.output_marks = {}
+			cell_info.accumulated_lines = {}
+			-- Pulisce i marcatori di prompt
+			for _, mark_id in ipairs(cell_info.prompt_marks) do
+				pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
+			end
+			cell_info.prompt_marks = {}
+		end
+	end
+
+	log.add(vim.log.levels.INFO, "Pulito l'output per " .. #cells_to_clear .. " cella/e.")
+end
+
 --- Trova e pulisce le celle esistenti contenute nel range specificato.
 function M.find_and_clear_cell_at_range(bufnr, start_row, end_row)
 	local cells_to_remove = {}

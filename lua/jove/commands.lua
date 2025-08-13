@@ -169,6 +169,29 @@ function M.history_cmd()
 	end)
 end
 
+-- Comando per pulire l'output di una o più celle.
+function M.clear_output_cmd(args)
+	local output = require("jove.output")
+	local bufnr = vim.api.nvim_get_current_buf()
+	local start_row, end_row
+
+	if args.bang then -- Pulisce tutto il buffer
+		start_row = 0
+		end_row = vim.api.nvim_buf_line_count(bufnr) - 1
+		log.add(vim.log.levels.INFO, "Pulizia di tutto l'output nel buffer...")
+	elseif args.range > 0 then -- Pulisce il range
+		start_row = args.line1 - 1
+		end_row = args.line2 - 1
+		log.add(vim.log.levels.INFO, "Pulizia dell'output nel range selezionato...")
+	else -- Pulisce alla posizione del cursore
+		start_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+		end_row = start_row
+		log.add(vim.log.levels.INFO, "Pulizia dell'output per la cella sotto il cursore...")
+	end
+
+	output.clear_output_in_range(bufnr, start_row, end_row)
+end
+
 -- Funzione per la statusline
 function M.status_text()
 	return status.get_status_text()
@@ -283,6 +306,12 @@ vim.api.nvim_create_user_command("JoveRestart", M.restart_cmd, {
 vim.api.nvim_create_user_command("JoveHistory", M.history_cmd, {
 	nargs = 0,
 	desc = "Mostra la cronologia di esecuzione del kernel attivo.",
+})
+
+vim.api.nvim_create_user_command("JoveClearOutput", M.clear_output_cmd, {
+	range = "%",
+	bang = true,
+	desc = "Pulisce l'output (cella corrente, selezione, o ! per tutto).",
 })
 
 vim.api.nvim_create_user_command("JoveLog", M.show_log_cmd, {

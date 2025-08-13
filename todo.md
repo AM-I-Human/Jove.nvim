@@ -32,10 +32,10 @@ L'obiettivo di questa fase è migliorare come Jove gestisce e visualizza l'outpu
     - [x] Il client Python usa `Pillow` per convertire le immagini in testo ANSI (caratteri a blocchi).
     - [x] Lua visualizza l'output come testo virtuale colorato.
 
-- [ ] **Implementare la Pulizia dell'Output:**
+- [x] **Implementare la Pulizia dell'Output:**
   - [x] Pulire l'output di una cella prima di rieseguirla per evitare la duplicazione degli indicatori.
-  - [ ] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.
-  - [ ] Implementare una funzione in `lua/jove/output.lua` per rimuovere gli `extmarks` associati a un range di righe specifico o a tutto il buffer.
+  - [x] Creare un comando utente (es. `:JoveClearOutput`) che possa operare sulla riga corrente, su una selezione o sull'intero buffer.
+  - [x] Implementare una funzione in `lua/jove/output.lua` per rimuovere gli `extmarks` associati a un range di righe specifico o a tutto il buffer.
 
 - [ ] **Aggiungere il Supporto per Input Interattivo (`input_request`):**
   - [ ] Gestire i messaggi `input_request` in arrivo dal kernel.

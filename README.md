@@ -38,3 +38,5 @@ Il plugin utilizza uno script Python helper che comunica con il kernel Jupyter t
    pip install ipykernel jupyter_client
    ```
    Oppure, se usi ambienti virtuali, assicurati che siano installati nell'ambiente attivo quando Neovim avvia il kernel.
+
+![render local image](test.png)

@@ -99,6 +99,11 @@ Questa fase mira a fornire un supporto trasparente per la modifica dei file `.ip
   - [ ] Studiare la possibilità di non terminare i kernel alla chiusura di Neovim (magari tramite un'opzione).
   - [ ] Aggiungere un comando `:JoveConnect` per potersi ricollegare a un kernel già in esecuzione tramite il suo file di connessione.
 
+- [ ] **Aggiungere un Visualizzatore di Variabili:**
+  - [ ] Creare un comando (es. `:JoveShowVariables`) per richiedere al kernel l'elenco delle variabili e i loro valori.
+  - [ ] **Implementazione Principale (Finestra Flottante):** Visualizzare l'elenco in una finestra flottante, mostrando un riassunto per oggetti complessi (es. dimensioni di un DataFrame).
+  - [ ] **Miglioramento Futuro (Testo Virtuale):** Studiare la possibilità di mostrare il valore di una singola variabile come testo virtuale alla fine della sua riga di definizione/assegnazione.
+
 ## Fase 5: Miglioramenti Tecnici e Refactoring
 
 - [ ] **Ottimizzare il Comando di Ispezione (`:JoveInspect`):**

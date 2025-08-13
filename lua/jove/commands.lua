@@ -16,6 +16,49 @@ local function get_active_kernel_name()
 	return kernel_name
 end
 
+--- Trova i limiti della cella Jupytext corrente basata su marcatori '# %%'.
+local function find_current_cell_boundaries(bufnr, cursor_row)
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local cell_marker_pattern = "^#%s*%%%%"
+
+	-- Cerca all'indietro dal cursore per trovare il marcatore di inizio della cella corrente
+	local start_marker_row = -1
+	for i = cursor_row, 0, -1 do
+		local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+		if line:match(cell_marker_pattern) then
+			start_marker_row = i
+			break
+		end
+	end
+
+	local cell_start_row = start_marker_row + 1
+
+	-- Cerca in avanti da dopo il marcatore di inizio per trovare il marcatore di fine
+	local end_marker_row = -1
+	-- Inizia la ricerca dalla riga DOPO il marcatore di inizio
+	for i = cell_start_row, line_count - 1 do
+		local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+		if line:match(cell_marker_pattern) then
+			end_marker_row = i
+			break
+		end
+	end
+
+	local cell_end_row
+	if end_marker_row ~= -1 then
+		cell_end_row = end_marker_row - 1
+	else
+		cell_end_row = line_count - 1
+	end
+
+	-- Se la cella è vuota (es. cursore su un marcatore seguito immediatamente da un altro o da EOF)
+	if cell_start_row > cell_end_row then
+		return nil, nil
+	end
+
+	return cell_start_row, cell_end_row
+end
+
 --- Cerca di ottenere un kernel attivo. Se non ce n'è uno, ne avvia uno basato
 --- sul filetype e poi esegue la callback.
 local function run_with_kernel(callback)
@@ -119,6 +162,30 @@ function M.execute_code_cmd(args)
 			kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
 		else
 			log.add(vim.log.levels.INFO, "Nessun codice da eseguire.")
+		end
+	end)
+end
+
+-- Comando per eseguire una cella in stile Jupytext
+function M.execute_jupytext_cell_cmd()
+	run_with_kernel(function(active_kernel_name)
+		local bufnr = vim.api.nvim_get_current_buf()
+		local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+
+		local start_row, end_row = find_current_cell_boundaries(bufnr, cursor_row)
+
+		if not start_row then
+			log.add(vim.log.levels.INFO, "Nessuna cella Jupytext valida trovata alla posizione corrente.")
+			return
+		end
+
+		local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
+		local code_to_execute = table.concat(lines, "\n")
+
+		if code_to_execute and string.gsub(code_to_execute, "%s", "") ~= "" then
+			kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
+		else
+			log.add(vim.log.levels.INFO, "Cella Jupytext vuota, nessun codice da eseguire.")
 		end
 	end)
 end
@@ -276,6 +343,11 @@ vim.api.nvim_create_user_command("JoveStart", M.start_kernel_cmd, {
 vim.api.nvim_create_user_command("JoveExecute", M.execute_code_cmd, {
 	range = "%",
 	desc = "Esegue la riga corrente o la selezione visuale nel kernel attivo.",
+})
+
+vim.api.nvim_create_user_command("JoveExecuteCell", M.execute_jupytext_cell_cmd, {
+	nargs = 0,
+	desc = "Esegue la cella Jupytext corrente (delimitata da '# %%').",
 })
 
 vim.api.nvim_create_user_command("JoveStatus", M.status_cmd, {

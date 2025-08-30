@@ -16,6 +16,72 @@ local function get_active_kernel_name()
 	return kernel_name
 end
 
+--- Trova un kernel in base al linguaggio specificato (es. da un blocco di codice markdown).
+local function find_kernel_by_language(language)
+	local kernels_config = config.get_config().kernels
+	if kernels_config then
+		for name, k_config in pairs(kernels_config) do
+			if k_config and k_config.languages then
+				for _, lang in ipairs(k_config.languages) do
+					if lang == language then
+						return name
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+--- Trova i limiti di un blocco di codice markdown e il suo linguaggio.
+local function find_markdown_cell_boundaries(bufnr, cursor_row)
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local fence_pattern = "^%s*```"
+	local start_fence_pattern = "^%s*```([%w_.-]+)"
+
+	local prev_fence = -1
+	for i = cursor_row, 0, -1 do
+		local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+		if line:match(fence_pattern) then
+			prev_fence = i
+			break
+		end
+	end
+
+	if prev_fence == -1 then
+		return nil
+	end
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, prev_fence, prev_fence + 1, false)[1] or ""
+	local language = line:match(start_fence_pattern)
+	-- Se la riga precedente è una fence ma senza linguaggio, non è un inizio di cella eseguibile
+	if not language then
+		return nil
+	end
+
+	local next_fence = -1
+	for i = cursor_row + 1, line_count - 1 do
+		local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+		if line:match(fence_pattern) then
+			next_fence = i
+			break
+		end
+	end
+
+	if next_fence == -1 then
+		return nil
+	end
+
+	local start_cell = prev_fence + 1
+	local end_cell = next_fence - 1
+
+	if start_cell > end_cell then
+		return nil -- Cella vuota
+	end
+
+	return start_cell, end_cell, language
+end
+
 --- Trova i limiti della cella Jupytext corrente basata su marcatori '# %%'.
 local function find_current_cell_boundaries(bufnr, cursor_row)
 	local line_count = vim.api.nvim_buf_line_count(bufnr)
@@ -91,12 +157,23 @@ end
 
 --- Cerca di ottenere un kernel attivo. Se non ce n'è uno, ne avvia uno basato
 --- sul filetype e poi esegue la callback.
-local function run_with_kernel(callback)
-	local active_kernel_name = vim.b.jove_active_kernel
+--- @param callback (function) La funzione da eseguire con il nome del kernel.
+--- @param kernel_name_override (string|nil) Se fornito, forza l'uso di questo kernel.
+local function run_with_kernel(callback, kernel_name_override)
+	local active_kernel_name = kernel_name_override or vim.b.jove_active_kernel
 	if active_kernel_name then
-		-- Se il kernel è attivo e idle, esegui subito
 		if status.get_status(active_kernel_name) == "idle" then
 			callback(active_kernel_name)
+		elseif not status.get_status(active_kernel_name) then -- Non in esecuzione o in avvio
+			log.add(vim.log.levels.INFO, "Avvio del kernel richiesto: '" .. active_kernel_name .. "'...")
+			kernel.start(active_kernel_name, function(started_kernel_name)
+				if not kernel_name_override then
+					vim.b.jove_active_kernel = started_kernel_name
+					status.set_active_kernel(started_kernel_name)
+				end
+				log.add(vim.log.levels.INFO, "Kernel '" .. started_kernel_name .. "' pronto. Esecuzione del comando.")
+				callback(started_kernel_name)
+			end)
 		else
 			log.add(
 				vim.log.levels.WARN,
@@ -110,7 +187,7 @@ local function run_with_kernel(callback)
 		return
 	end
 
-	-- Nessun kernel attivo per questo buffer, cerchiamone uno
+	-- Nessun kernel attivo per questo buffer e nessun override, cerchiamone uno
 	local filetype = vim.bo.filetype
 	local kernels_config = config.get_config().kernels
 	local found_kernel_name
@@ -196,28 +273,54 @@ function M.execute_code_cmd(args)
 	end)
 end
 
--- Comando per eseguire una cella in stile Jupytext
+-- Comando per eseguire una cella (Jupytext o Markdown)
 function M.execute_jupytext_cell_cmd()
-	run_with_kernel(function(active_kernel_name)
-		local bufnr = vim.api.nvim_get_current_buf()
-		local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+	local bufnr = vim.api.nvim_get_current_buf()
+	local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+	local filetype = vim.bo.filetype
 
-		local start_row, end_row = find_current_cell_boundaries(bufnr, cursor_row)
+	local start_row, end_row, language
+	local kernel_name_override
 
-		if not start_row then
-			log.add(vim.log.levels.INFO, "Nessuna cella Jupytext valida trovata alla posizione corrente.")
-			return
+	if filetype == "markdown" then
+		start_row, end_row, language = find_markdown_cell_boundaries(bufnr, cursor_row)
+		if language then
+			kernel_name_override = find_kernel_by_language(language)
+			if not kernel_name_override then
+				log.add(
+					vim.log.levels.WARN,
+					string.format(
+						"Nessun kernel configurato per il linguaggio: '%s'. Controlla 'languages' nella tua configurazione Jove.",
+						language
+					)
+				)
+				return
+			end
 		end
+	else
+		-- Per altri filetype, usa la logica Jupytext
+		start_row, end_row = find_current_cell_boundaries(bufnr, cursor_row)
+	end
 
+	if not start_row then
+		local msg = (filetype == "markdown")
+				and "Nessun blocco di codice markdown eseguibile trovato alla posizione corrente."
+			or "Nessuna cella Jupytext valida trovata alla posizione corrente."
+		log.add(vim.log.levels.INFO, msg)
+		return
+	end
+
+	local function execute(kernel_name)
 		local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
 		local code_to_execute = table.concat(lines, "\n")
-
 		if code_to_execute and string.gsub(code_to_execute, "%s", "") ~= "" then
-			kernel.execute_cell(active_kernel_name, code_to_execute, bufnr, start_row, end_row)
+			kernel.execute_cell(kernel_name, code_to_execute, bufnr, start_row, end_row)
 		else
-			log.add(vim.log.levels.INFO, "Cella Jupytext vuota, nessun codice da eseguire.")
+			log.add(vim.log.levels.INFO, "Cella vuota, nessun codice da eseguire.")
 		end
-	end)
+	end
+
+	run_with_kernel(execute, kernel_name_override)
 end
 
 -- Comando per muoversi alla cella successiva

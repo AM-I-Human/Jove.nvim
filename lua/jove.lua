@@ -29,6 +29,7 @@ local defaults = {
 			cmd = "python -m ipykernel_launcher -f {connection_file}",
 			executable = "python",
 			filetypes = { "python" },
+			languages = { "python", "py" }, -- Per i blocchi di codice markdown
 		},
 	},
 }

@@ -42,8 +42,10 @@ require('lazy').setup({
         config = function()
             -- This is the standard way to set up a plugin
             require('jove').setup {
+                -- La configurazione del kernel ora usa un placeholder `{executable}`
+                -- per permettere a Jove di usare il python dal venv attivo.
                 kernels = {
-                    python = { cmd = 'python -m ipykernel_launcher -f {connection_file}', executable = 'python' },
+                    python = { cmd = '{executable} -m ipykernel -f {connection_file}' },
                 },
             }
         end,

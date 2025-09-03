@@ -42,7 +42,10 @@ function M.start(kernel_name, on_ready_callback)
 		log.add(vim.log.levels.ERROR, "Configurazione non trovata per il kernel: " .. kernel_name)
 		return
 	end
-	local python_exec = kernel_config.executable or vim.g.jove_default_python or "python"
+	local python_exec = vim.g.python3_host_prog
+		or kernel_config.executable
+		or vim.g.jove_default_python
+		or "python"
 	local connection_file = vim.fn.tempname() .. ".json"
 
 	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{executable}", python_exec)
@@ -98,7 +101,10 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	local image_width = tostring(jove_config.image_width or 120)
 	local image_renderer = jove_config.image_renderer or "sixel"
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
-	local executable = (kernels_config[kernel_name] or {}).executable or "python"
+	local executable = vim.g.python3_host_prog
+		or (kernels_config[kernel_name] or {}).executable
+		or vim.g.jove_default_python
+		or "python"
 	local py_client_cmd = {
 		executable,
 		"-u",

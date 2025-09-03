@@ -26,8 +26,7 @@ local defaults = {
 	image_width = 80,
 	kernels = {
 		python = {
-			cmd = "python -m ipykernel_launcher -f {connection_file}",
-			executable = "python",
+			cmd = "{executable} -m ipykernel -f {connection_file}",
 			filetypes = { "python" },
 			languages = { "python", "py" }, -- Per i blocchi di codice markdown
 		},

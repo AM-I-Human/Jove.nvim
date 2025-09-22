@@ -1,3 +1,4 @@
+# %%
 import pandas as pd
 from matplotlib import pyplot as plt
 from PIL import Image
@@ -12,6 +13,9 @@ plt.plot(pd.DataFrame({"a": list(range(10))}))
 # pd.DataFrame({"a": list(range(10))})
 # hello = "hello"
 # print("hello") or hello
+
+# %%
+
 import os
 
 print(os.getcwd())

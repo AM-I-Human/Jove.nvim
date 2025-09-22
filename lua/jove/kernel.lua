@@ -42,13 +42,29 @@ function M.start(kernel_name, on_ready_callback)
 		log.add(vim.log.levels.ERROR, "Configurazione non trovata per il kernel: " .. kernel_name)
 		return
 	end
-	local python_exec = vim.g.python3_host_prog
-		or kernel_config.executable
-		or vim.g.jove_default_python
-		or "python"
+
+	-- Determina l'eseguibile per il kernel, dando priorità ai venv.
+	local venv_path
+	if vim.env.VIRTUAL_ENV then
+		if vim.fn.has("win32") == 1 then
+			venv_path = vim.env.VIRTUAL_ENV .. "\\Scripts\\python.exe"
+		else
+			venv_path = vim.env.VIRTUAL_ENV .. "/bin/python"
+		end
+		if vim.fn.executable(venv_path) ~= 1 then
+			venv_path = nil -- L'eseguibile non esiste o non è eseguibile
+		end
+	end
+
+	local kernel_exec = kernel_config.executable -- 1. Configurazione utente esplicita
+		or vim.b.python_exec -- 2. Integrazione con venv-selector
+		or venv_path -- 3. Variabile d'ambiente VIRTUAL_ENV
+		or vim.g.jove_default_python -- 4. Fallback globale di Jove
+		or "python" -- 5. Python di sistema
+
 	local connection_file = vim.fn.tempname() .. ".json"
 
-	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{executable}", python_exec)
+	local ipykernel_cmd = string.gsub(kernel_config.cmd, "{executable}", kernel_exec)
 	ipykernel_cmd = string.gsub(ipykernel_cmd, "{connection_file}", connection_file)
 
 	log.add(vim.log.levels.INFO, "Avvio del processo ipykernel: " .. ipykernel_cmd)
@@ -101,8 +117,8 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	local image_width = tostring(jove_config.image_width or 120)
 	local image_renderer = jove_config.image_renderer or "sixel"
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
+	-- Usa l'eseguibile Python di Neovim per il client, che dovrebbe avere jupyter_client.
 	local executable = vim.g.python3_host_prog
-		or (kernels_config[kernel_name] or {}).executable
 		or vim.g.jove_default_python
 		or "python"
 	local py_client_cmd = {

@@ -79,38 +79,33 @@ function M.parse(text, default_hl)
 	local i = 1
 	local current_chunk_start = 1
 
+	-- Helper to create the highlight group
+	local function get_hl_group()
+		if not current_fg and not current_bg then
+			return default_hl or "Normal"
+		end
+		local group = {}
+		if current_fg then
+			table.insert(group, current_fg)
+		end
+		if current_bg then
+			table.insert(group, current_bg)
+		end
+		return group
+	end
+
 	while true do
 		local start, finish, code_str = text:find("\x1b%[([%d;]*)m", i)
 
 		if not start then
 			if current_chunk_start <= #text then
-				local hl_group = {}
-				if current_fg then
-					table.insert(hl_group, current_fg)
-				end
-				if current_bg then
-					table.insert(hl_group, current_bg)
-				end
-				if #hl_group == 0 then
-					hl_group = default_hl or "Normal"
-				end
-				table.insert(chunks, { text:sub(current_chunk_start), hl_group })
+				table.insert(chunks, { text:sub(current_chunk_start), get_hl_group() })
 			end
 			break
 		end
 
 		if start > current_chunk_start then
-			local hl_group = {}
-			if current_fg then
-				table.insert(hl_group, current_fg)
-			end
-			if current_bg then
-				table.insert(hl_group, current_bg)
-			end
-			if #hl_group == 0 then
-				hl_group = default_hl or "Normal"
-			end
-			table.insert(chunks, { text:sub(current_chunk_start, start - 1), hl_group })
+			table.insert(chunks, { text:sub(current_chunk_start, start - 1), get_hl_group() })
 		end
 
 		local codes = vim.split(code_str, ";")
@@ -118,9 +113,58 @@ function M.parse(text, default_hl)
 			codes = { "0" }
 		end
 
-		for _, code in ipairs(codes) do
-			if code == "0" then
+		local code_idx = 1
+		while code_idx <= #codes do
+			local code = codes[code_idx]
+			if code == "0" or code == "" then
 				current_fg, current_bg = nil, nil
+			elseif code == "38" then -- Extended foreground color
+				code_idx = code_idx + 1
+				local next_code = codes[code_idx]
+				if next_code == "5" then -- 256 color
+					code_idx = code_idx + 1
+					local color_index = tonumber(codes[code_idx])
+					if color_index then
+						local hl_name = "AnsiFg256_" .. color_index
+						pcall(
+							vim.api.nvim_command,
+							string.format("highlight default %s ctermfg=%s guifg=NONE", hl_name, color_index)
+						)
+						current_fg = hl_name
+					end
+				elseif next_code == "2" then -- True color
+					local r, g, b = tonumber(codes[code_idx + 1]), tonumber(codes[code_idx + 2]), tonumber(codes[code_idx + 3])
+					if r and g and b then
+						local hex = string.format("#%02x%02x%02x", r, g, b)
+						local hl_name = "AnsiFgTrue_" .. r .. "_" .. g .. "_" .. b
+						pcall(vim.api.nvim_command, string.format("highlight default %s guifg=%s", hl_name, hex))
+						current_fg = hl_name
+					end
+					code_idx = code_idx + 3
+				end
+			elseif code == "48" then -- Extended background color
+				local next_code = codes[code_idx]
+				if next_code == "5" then -- 256 color
+					code_idx = code_idx + 1
+					local color_index = tonumber(codes[code_idx])
+					if color_index then
+						local hl_name = "AnsiBg256_" .. color_index
+						pcall(
+							vim.api.nvim_command,
+							string.format("highlight default %s ctermbg=%s guibg=NONE", hl_name, color_index)
+						)
+						current_bg = hl_name
+					end
+				elseif next_code == "2" then -- True color
+					local r, g, b = tonumber(codes[code_idx + 1]), tonumber(codes[code_idx + 2]), tonumber(codes[code_idx + 3])
+					if r and g and b then
+						local hex = string.format("#%02x%02x%02x", r, g, b)
+						local hl_name = "AnsiBgTrue_" .. r .. "_" .. g .. "_" .. b
+						pcall(vim.api.nvim_command, string.format("highlight default %s guibg=%s", hl_name, hex))
+						current_bg = hl_name
+					end
+					code_idx = code_idx + 3
+				end
 			else
 				local color_info = color_map[code]
 				if color_info then
@@ -132,6 +176,7 @@ function M.parse(text, default_hl)
 					end
 				end
 			end
+			code_idx = code_idx + 1
 		end
 
 		i = finish + 1

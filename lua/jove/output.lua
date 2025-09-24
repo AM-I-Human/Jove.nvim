@@ -97,6 +97,17 @@ end
 
 --- Funzione unificata per elaborare e aggiungere/aggiornare output di tipo "rich text".
 local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return
+	end
+
+	-- Gestisce clear_output(wait=true)
+	if cell_info.pending_clear then
+		state.clear_cell_outputs(cell_id)
+		cell_info.pending_clear = false
+	end
+
 	local content = jupyter_msg.content
 	if not content or not content.data then
 		return
@@ -129,11 +140,6 @@ local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
 	end
 
 	if is_update and display_id then
-		local cell_info = state.get_cell(cell_id)
-		if not cell_info then
-			return
-		end
-
 		local updated = false
 		-- Cerca l'output esistente con lo stesso display_id e lo aggiorna
 		for i, output in ipairs(cell_info.outputs) do
@@ -166,6 +172,17 @@ local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
 end
 
 function M.render_stream(cell_id, jupyter_msg)
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return
+	end
+
+	-- Gestisce clear_output(wait=true)
+	if cell_info.pending_clear then
+		state.clear_cell_outputs(cell_id)
+		cell_info.pending_clear = false
+	end
+
 	if not jupyter_msg or not jupyter_msg.content then
 		return
 	end
@@ -183,8 +200,7 @@ function M.render_stream(cell_id, jupyter_msg)
 
 	if #lines_of_chunks > 0 then
 		-- Heuristic: stream updates often replace the last stream output.
-		local cell_info = state.get_cell(cell_id)
-		if cell_info and #cell_info.outputs > 0 and cell_info.outputs[#cell_info.outputs].type == "stream" then
+		if #cell_info.outputs > 0 and cell_info.outputs[#cell_info.outputs].type == "stream" then
 			cell_info.outputs[#cell_info.outputs].content = lines_of_chunks
 		else
 			state.add_output_to_cell(cell_id, { type = "stream", content = lines_of_chunks })
@@ -259,6 +275,17 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 end
 
 function M.render_error(cell_id, jupyter_msg)
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return
+	end
+
+	-- Gestisce clear_output(wait=true)
+	if cell_info.pending_clear then
+		state.clear_cell_outputs(cell_id)
+		cell_info.pending_clear = false
+	end
+
 	local traceback = jupyter_msg.content.traceback
 	if traceback then
 		local cleaned_traceback = {}

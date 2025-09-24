@@ -238,7 +238,11 @@ function M.render_error(cell_id, jupyter_msg)
 
 		local lines_of_chunks = {}
 		for _, line in ipairs(cleaned_traceback) do
-			table.insert(lines_of_chunks, { { line, "ErrorMsg" } })
+			-- Una riga di traceback può contenere newline, quindi la splittiamo
+			local sub_lines = vim.split(line:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n")
+			for _, sub_line in ipairs(sub_lines) do
+				table.insert(lines_of_chunks, { { sub_line, "ErrorMsg" } })
+			end
 		end
 		add_output_to_cell(cell_id, { type = "error", content = lines_of_chunks })
 	end

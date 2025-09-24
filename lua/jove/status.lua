@@ -1,7 +1,9 @@
 -- lua/jove/status.lua
+-- Questo modulo è ora un wrapper stateless attorno a `jove.state`
+-- per la visualizzazione dello stato.
 local M = {}
+local state = require("jove.state")
 
--- Icone per un tocco visuale
 local icons = {
 	idle = "✓",
 	busy = "🚀",
@@ -10,61 +12,53 @@ local icons = {
 	disconnected = "⚪",
 }
 
--- Tabella che conterrà lo stato dei kernel
-local state = {
-	kernels = {}, -- Esempio: { python = "idle", julia = "busy" }
-	active_kernel = nil,
-}
-
--- Funzione per aggiornare lo stato di un kernel specifico
+--- Aggiorna lo stato di un kernel. Proxy per `state.update_kernel_status`.
 function M.update_status(kernel_name, status)
-	state.kernels[kernel_name] = status or "disconnected"
-	vim.cmd("redraws!") -- Forza un ridisegno della statusline
+	state.update_kernel_status(kernel_name, status or "disconnected")
 end
 
--- Funzione per impostare il kernel attivo
+--- Imposta il kernel attivo. Proxy per `state.set_active_kernel_name`.
 function M.set_active_kernel(kernel_name)
-	state.active_kernel = kernel_name
-	vim.cmd("redraws!")
+	state.set_active_kernel_name(kernel_name)
 end
 
--- Funzione per rimuovere un kernel quando viene fermato
+--- Rimuove un kernel. Proxy per `state.remove_kernel`.
 function M.remove_kernel(kernel_name)
-	state.kernels[kernel_name] = nil
-	if state.active_kernel == kernel_name then
-		state.active_kernel = nil
-	end
-	vim.cmd("redraws!")
+	state.remove_kernel(kernel_name)
 end
 
---- NUOVA FUNZIONE ---
--- Funzione per ottenere lo stato di un singolo kernel.
--- @param kernel_name (string) Il nome del kernel.
--- @return (string) Lo stato attuale del kernel ('idle', 'busy', etc.).
+--- Ottiene lo stato di un singolo kernel.
 function M.get_status(kernel_name)
-	return state.kernels[kernel_name]
+	local kernel_info = state.get_kernel(kernel_name)
+	return kernel_info and kernel_info.status
 end
 
--- LA FUNZIONE CHIAVE PER L'UTENTE DELLA STATUSLINE
+--- Genera il testo per la statusline.
 function M.get_status_text()
-	if not state.active_kernel then
+	local active_kernel_name = state.get_active_kernel_name()
+	if not active_kernel_name then
 		return "Jove: No kernel"
 	end
-	local kernel_name = state.active_kernel
-	local kernel_status = state.kernels[kernel_name] or "disconnected"
+
+	local kernel_info = state.get_kernel(active_kernel_name)
+	local kernel_status = (kernel_info and kernel_info.status) or "disconnected"
 	local icon = icons[kernel_status] or "❔"
-	return string.format("Jove (%s): %s %s", kernel_name, icon, kernel_status)
+
+	return string.format("Jove (%s): %s %s", active_kernel_name, icon, kernel_status)
 end
 
--- Funzione per ottenere lo stato di tutti i kernel (per il comando :JoveStatus)
+--- Ottiene una lista formattata dello stato di tutti i kernel.
 function M.get_full_status()
-	if not next(state.kernels) then
+	local all_kernels = state.get_all_kernels()
+	if not next(all_kernels) then
 		return { "Nessun kernel Jove attivo." }
 	end
+
+	local active_kernel_name = state.get_active_kernel_name()
 	local status_lines = {}
-	for name, status in pairs(state.kernels) do
-		local line = string.format("Kernel: %s, Stato: %s", name, status)
-		if name == state.active_kernel then
+	for name, kernel_info in pairs(all_kernels) do
+		local line = string.format("Kernel: %s, Stato: %s", name, kernel_info.status)
+		if name == active_kernel_name then
 			line = line .. " (attivo)"
 		end
 		table.insert(status_lines, line)

@@ -2,6 +2,7 @@
 
 local M = {}
 local config_module = require("jove")
+local state = require("jove.state")
 local status = require("jove.status")
 local message = require("jove.message")
 local output = require("jove.output")
@@ -29,19 +30,19 @@ function M.start(kernel_name, on_ready_callback)
 		return
 	end
 
-	local kernels_config = config_module.get_config().kernels
-	if kernels_config[kernel_name] and kernels_config[kernel_name].py_client_job_id then
-		log.add(vim.log.levels.WARN, "Kernel client for '" .. kernel_name .. "' is already running or starting.")
+	if state.get_kernel(kernel_name) then
+		log.add(vim.log.levels.WARN, "Kernel '" .. kernel_name .. "' is already running or starting.")
 		return
 	end
-	status.update_status(kernel_name, "starting")
 
-	local kernel_config = kernels_config[kernel_name]
+	local kernels_config = config_module.get_config().kernels
 	local kernel_config = kernels_config[kernel_name]
 	if not kernel_config then
 		log.add(vim.log.levels.ERROR, "Configurazione non trovata per il kernel: " .. kernel_name)
 		return
 	end
+
+	state.add_kernel(kernel_name, kernel_config)
 
 	-- Determina l'eseguibile per il kernel, dando priorità ai venv.
 	local venv_path
@@ -113,7 +114,6 @@ end
 
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref, on_ready_callback)
 	local jove_config = config_module.get_config()
-	local kernels_config = jove_config.kernels
 	local image_width = tostring(jove_config.image_width or 120)
 	local image_renderer = jove_config.image_renderer or "sixel"
 	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
@@ -130,11 +130,10 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		image_renderer,
 	}
 
-	-- Assicura che la tabella esista e imposta i job ID
-	kernels_config[kernel_name] = kernels_config[kernel_name] or {}
-	kernels_config[kernel_name].ipykernel_job_id = ipykernel_job_id_ref
-	kernels_config[kernel_name].py_client_job_id = nil
-	kernels_config[kernel_name].on_ready_callback = on_ready_callback
+	state.set_kernel_property(kernel_name, "ipykernel_job_id", ipykernel_job_id_ref)
+	if on_ready_callback then
+		state.set_kernel_property(kernel_name, "on_ready_callback", on_ready_callback)
+	end
 
 	local py_job_id = vim.fn.jobstart(py_client_cmd, {
 		stdin = "pipe",
@@ -155,17 +154,14 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		on_exit = function(_, exit_code, _)
 			local msg = "Client Python per '" .. kernel_name .. "' terminato con codice: " .. exit_code
 			log.add(vim.log.levels.INFO, msg)
-			if kernels_config[kernel_name] then
-				kernels_config[kernel_name].py_client_job_id = nil
-			end
+			state.set_kernel_property(kernel_name, "py_client_job_id", nil)
 		end,
 	})
-	kernels_config[kernel_name].py_client_job_id = py_job_id
+	state.set_kernel_property(kernel_name, "py_client_job_id", py_job_id)
 end
 
 function M.handle_py_client_message(kernel_name, json_line)
-	local kernels_config = config_module.get_config().kernels
-	if not kernels_config[kernel_name] then
+	if not state.get_kernel(kernel_name) then
 		return
 	end
 
@@ -180,10 +176,10 @@ function M.handle_py_client_message(kernel_name, json_line)
 
 	if msg_type == "status" and data.message == "connected" then
 		status.update_status(kernel_name, "idle")
-		local k_config = kernels_config[kernel_name]
-		if k_config and k_config.on_ready_callback then
-			local cb = k_config.on_ready_callback
-			k_config.on_ready_callback = nil -- Esegui una sola volta
+		local k_info = state.get_kernel(kernel_name)
+		if k_info and k_info.on_ready_callback then
+			local cb = k_info.on_ready_callback
+			state.set_kernel_property(kernel_name, "on_ready_callback", nil) -- Esegui una sola volta
 			vim.schedule(function()
 				cb(kernel_name)
 			end)
@@ -204,28 +200,29 @@ function M.handle_py_client_message(kernel_name, json_line)
 			status.update_status(kernel_name, "idle")
 		end
 	elseif msg_type == "image_iip" then
-		local k_info = kernels_config[kernel_name]
-		if k_info.current_execution_cell_id then
+		local k_info = state.get_kernel(kernel_name)
+		if k_info and k_info.current_execution_cell_id then
 			output.render_iip_image(k_info.current_execution_cell_id, data.payload)
 		end
 	elseif msg_type == "image_sixel" then
-		local k_info = kernels_config[kernel_name]
-		if k_info.current_execution_cell_id then
+		local k_info = state.get_kernel(kernel_name)
+		if k_info and k_info.current_execution_cell_id then
 			output.render_sixel_image(k_info.current_execution_cell_id, data.payload)
 		end
-	elseif msg_type == "iopub" and kernels_config[kernel_name].current_execution_cell_id then
-		local iopub_msg_type = jupyter_msg.header.msg_type
-		local handler = output.iopub_handlers[iopub_msg_type]
-		if handler then
-			local k_info = kernels_config[kernel_name]
-			handler(k_info.current_execution_cell_id, jupyter_msg)
+	elseif msg_type == "iopub" then
+		local k_info = state.get_kernel(kernel_name)
+		if k_info and k_info.current_execution_cell_id then
+			local iopub_msg_type = jupyter_msg.header.msg_type
+			local handler = output.iopub_handlers[iopub_msg_type]
+			if handler then
+				handler(k_info.current_execution_cell_id, jupyter_msg)
+			end
 		end
 	end
 end
 
 function M.execute_cell(kernel_name, cell_content, bufnr, start_row, end_row)
-	local kernels_config = config_module.get_config().kernels
-	local kernel_info = kernels_config[kernel_name]
+	local kernel_info = state.get_kernel(kernel_name)
 	if not kernel_info or not kernel_info.py_client_job_id then
 		return
 	end
@@ -236,7 +233,7 @@ function M.execute_cell(kernel_name, cell_content, bufnr, start_row, end_row)
 	end
 	output.find_and_clear_cell_at_range(bufnr, start_row, end_row)
 	local cell_id = output.create_cell_markers(bufnr, start_row, end_row)
-	kernel_info.current_execution_cell_id = cell_id
+	state.set_kernel_property(kernel_name, "current_execution_cell_id", cell_id)
 	status.update_status(kernel_name, "busy")
 	M.send_to_py_client(kernel_name, { command = "execute", payload = message.create_execute_request(cell_content) })
 end
@@ -254,8 +251,7 @@ end
 
 --- CORREZIONE: Logica di riavvio "stop and start" non distruttiva ---
 function M.restart(kernel_name)
-	local kernels_config = config_module.get_config().kernels
-	local kernel_info = kernels_config[kernel_name]
+	local kernel_info = state.get_kernel(kernel_name)
 	if not kernel_info then
 		log.add(vim.log.levels.WARN, "Impossibile riavviare un kernel non esistente: " .. kernel_name)
 		return
@@ -266,15 +262,13 @@ function M.restart(kernel_name)
 	-- Arresta i processi esistenti
 	if kernel_info.py_client_job_id then
 		vim.fn.jobstop(kernel_info.py_client_job_id)
-		kernel_info.py_client_job_id = nil
 	end
 	if kernel_info.ipykernel_job_id then
 		vim.fn.jobstop(kernel_info.ipykernel_job_id)
-		kernel_info.ipykernel_job_id = nil
 	end
 
-	-- Pulisci lo stato, ma NON la configurazione statica
-	status.remove_kernel(kernel_name)
+	-- Rimuove il kernel dallo stato. La configurazione statica rimane in jove.lua.
+	state.remove_kernel(kernel_name)
 
 	-- Aggiungi un piccolo ritardo per dare tempo al sistema operativo di chiudere i processi
 	vim.defer_fn(function()
@@ -291,8 +285,7 @@ function M.history(kernel_name)
 end
 
 function M.send_to_py_client(kernel_name, data_table)
-	local kernels_config = config_module.get_config().kernels
-	local kernel_info = kernels_config[kernel_name]
+	local kernel_info = state.get_kernel(kernel_name)
 	if not kernel_info or not kernel_info.py_client_job_id then
 		return
 	end
@@ -313,16 +306,16 @@ function M.parse_connection_file(filename)
 end
 
 function M.list_running_kernels()
-	local kernels_config = config_module.get_config().kernels
+	local all_kernels = state.get_all_kernels()
 	local running = {}
-	if not next(kernels_config) then
+	if not next(all_kernels) then
 		return { "Nessun kernel gestito al momento." }
 	end
-	for name, info in pairs(kernels_config) do
+	for name, info in pairs(all_kernels) do
 		local status_line = string.format(
 			"Kernel: %s, Stato: %s, IPYKernel Job ID: %s, PyClient Job ID: %s",
 			name,
-			status.get_status(name) or "sconosciuto",
+			info.status or "sconosciuto",
 			tostring(info.ipykernel_job_id),
 			tostring(info.py_client_job_id)
 		)
@@ -336,9 +329,9 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 	group = "JoveCleanup",
 	pattern = "*",
 	callback = function()
-		local kernels_config = config_module.get_config().kernels
-		if kernels_config and next(kernels_config) ~= nil then
-			for name, info in pairs(kernels_config) do
+		local all_kernels = state.get_all_kernels()
+		if all_kernels and next(all_kernels) ~= nil then
+			for _, info in pairs(all_kernels) do
 				if info.py_client_job_id then
 					vim.fn.jobstop(info.py_client_job_id)
 				end

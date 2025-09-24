@@ -479,6 +479,14 @@ function M.render_image_cmd(args)
 	image_renderer.render_image(bufnr, lineno, image_path)
 end
 
+--- Comando per rendere l'output di una cella selezionabile in una finestra flottante.
+function M.select_output_cmd()
+	local output = require("jove.output")
+	local bufnr = vim.api.nvim_get_current_buf()
+	local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
+	output.show_selectable_output(bufnr, cursor_row)
+end
+
 -- =========================================================================
 -- REGISTRAZIONE DEI COMANDI
 -- =========================================================================
@@ -566,6 +574,11 @@ vim.api.nvim_create_user_command("JoveRenderImage", M.render_image_cmd, {
 	nargs = 1,
 	complete = "file",
 	desc = "Renderizza un'immagine inline sulla riga corrente (protocollo iTerm2).",
+})
+
+vim.api.nvim_create_user_command("JoveSelectOutput", M.select_output_cmd, {
+	nargs = 0,
+	desc = "Mostra l'output della cella corrente in una finestra per la selezione.",
 })
 
 return M

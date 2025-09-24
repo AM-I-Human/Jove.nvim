@@ -1,6 +1,8 @@
 -- lua/jove/output.lua
+-- Modulo di rendering per gli output delle celle. È stateless.
 local M = {}
 local log = require("jove.log")
+local state = require("jove.state")
 --- Pulisce una stringa dai codici di escape ANSI e da altri caratteri non stampabili.
 -- @param str La stringa da pulire.
 -- @return La stringa pulita.
@@ -15,44 +17,25 @@ local function clean_string(str)
 	return cleaned
 end
 
-local NS_ID = vim.api.nvim_create_namespace("jove_output")
 
--- Struttura per memorizzare gli extmarks per ogni cella
--- La chiave è l'ID del primo extmark (start_mark_id)
-local cell_marks = {} -- { [cell_id] = { bufnr, start_mark, end_mark, output_marks = {} } }
-
---- Crea i marcatori di inizio e fine per una nuova cella.
-function M.create_cell_markers(bufnr, start_row, end_row)
-	local start_mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, start_row, 0, { right_gravity = false })
-	local end_mark_id = vim.api.nvim_buf_set_extmark(bufnr, NS_ID, end_row, -1, { right_gravity = true })
-
-	cell_marks[start_mark_id] = {
-		bufnr = bufnr,
-		start_mark = start_mark_id,
-		end_mark = end_mark_id,
-		output_marks = {}, -- Marcatori extmark visuali
-		prompt_marks = {},
-		outputs = {}, -- Struttura dati per gli output
-	}
-	return start_mark_id -- Usiamo l'ID del marcatore di inizio come ID della cella
-end
-
---- Pulisce solo i marcatori visuali (extmarks) di una cella, ma non i dati.
+--- Pulisce solo i marcatori visuali (extmarks) di una cella.
 local function clear_cell_display(cell_info)
+	local NS_ID = state.get_namespace_id()
 	for _, mark_id in ipairs(cell_info.output_marks) do
 		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
 	end
 	cell_info.output_marks = {}
 end
 
---- Ridisegna tutti gli output di una cella basandosi sulla sua struttura dati `outputs`.
-local function redisplay_cell_outputs(cell_id)
-	local cell_info = cell_marks[cell_id]
+--- Ridisegna tutti gli output di una cella leggendo dal modulo di stato.
+function M.redraw_cell(cell_id)
+	local cell_info = state.get_cell(cell_id)
 	if not cell_info then
 		return
 	end
 	clear_cell_display(cell_info)
 
+	local NS_ID = state.get_namespace_id()
 	local virt_lines = {}
 	for _, output in ipairs(cell_info.outputs) do
 		if output.type == "stream" then
@@ -89,16 +72,6 @@ local function redisplay_cell_outputs(cell_id)
 	table.insert(cell_info.output_marks, mark_id)
 end
 
---- Aggiunge un nuovo output alla struttura dati di una cella e la ridisegna.
-local function add_output_to_cell(cell_id, output_data)
-	local cell_info = cell_marks[cell_id]
-	if not cell_info then
-		return
-	end
-	table.insert(cell_info.outputs, output_data)
-	redisplay_cell_outputs(cell_id)
-end
-
 --- Renderizza un'immagine usando il protocollo iTerm2 (IIP) come testo virtuale.
 function M.render_iip_image(cell_id, b64_data)
 	local term_image_adapter = require("jove.term-image.adapter")
@@ -107,7 +80,8 @@ function M.render_iip_image(cell_id, b64_data)
 		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini o l'adattatore ha fallito.")
 		return
 	end
-	add_output_to_cell(cell_id, { type = "image_iip", content = sequence, b64 = b64_data })
+	state.add_output_to_cell(cell_id, { type = "image_iip", content = sequence, b64 = b64_data })
+	M.redraw_cell(cell_id)
 end
 
 --- Renderizza una stringa Sixel come testo virtuale.
@@ -116,7 +90,8 @@ function M.render_sixel_image(cell_id, sixel_string)
 		log.add(vim.log.levels.WARN, "[Jove] Ricevuta stringa Sixel vuota.")
 		return
 	end
-	add_output_to_cell(cell_id, { type = "image_sixel", content = sixel_string })
+	state.add_output_to_cell(cell_id, { type = "image_sixel", content = sixel_string })
+	M.redraw_cell(cell_id)
 end
 
 local function add_text_plain_output(cell_id, jupyter_msg, with_prompt, output_type, highlight_group)
@@ -140,7 +115,8 @@ local function add_text_plain_output(cell_id, jupyter_msg, with_prompt, output_t
 		for _, line in ipairs(lines) do
 			table.insert(lines_of_chunks, { { line, highlight_group } })
 		end
-		add_output_to_cell(cell_id, { type = output_type, content = lines_of_chunks })
+		state.add_output_to_cell(cell_id, { type = output_type, content = lines_of_chunks })
+		M.redraw_cell(cell_id)
 	end
 end
 
@@ -159,7 +135,8 @@ function M.render_stream(cell_id, jupyter_msg)
 		for _, line in ipairs(lines) do
 			table.insert(lines_of_chunks, { { line, "Comment" } })
 		end
-		add_output_to_cell(cell_id, { type = "stream", content = lines_of_chunks })
+		state.add_output_to_cell(cell_id, { type = "stream", content = lines_of_chunks })
+		M.redraw_cell(cell_id)
 	end
 end
 
@@ -171,14 +148,16 @@ end
 
 function M.render_input_prompt(cell_id, jupyter_msg)
 	local exec_count = jupyter_msg.content.execution_count
-	local cell_info = cell_marks[cell_id]
+	local cell_info = state.get_cell(cell_id)
 	if not exec_count or not cell_info then
 		return
 	end
 
+	local NS_ID = state.get_namespace_id()
+
 	-- Pulisce tutti i marcatori visivi (output e prompt) per questa cella
 	clear_cell_display(cell_info) -- Pulisce l'output precedente
-	cell_info.outputs = {} -- Cancella i dati dell'output precedente
+	state.clear_cell_outputs(cell_id) -- Cancella i dati dell'output precedente
 	for _, mark_id in ipairs(cell_info.prompt_marks) do
 		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
 	end
@@ -244,7 +223,8 @@ function M.render_error(cell_id, jupyter_msg)
 				table.insert(lines_of_chunks, { { sub_line, "ErrorMsg" } })
 			end
 		end
-		add_output_to_cell(cell_id, { type = "error", content = lines_of_chunks })
+		state.add_output_to_cell(cell_id, { type = "error", content = lines_of_chunks })
+		M.redraw_cell(cell_id)
 	end
 end
 
@@ -260,7 +240,8 @@ end
 -- @param end_row (integer) La riga di fine (0-indexed).
 function M.clear_output_in_range(bufnr, start_row, end_row)
 	local cells_to_clear = {}
-	for cell_id, cell_info in pairs(cell_marks) do
+	local NS_ID = state.get_namespace_id()
+	for cell_id, cell_info in pairs(state.get_all_cells()) do
 		if cell_info.bufnr == bufnr then
 			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
 			local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.end_mark, {})
@@ -268,8 +249,6 @@ function M.clear_output_in_range(bufnr, start_row, end_row)
 			if pos_start and #pos_start > 0 and pos_end and #pos_end > 0 then
 				local cell_start_row = pos_start[1]
 				local cell_end_row = pos_end[1]
-
-				-- Controlla se il range della cella si sovrappone al range specificato
 				if math.max(cell_start_row, start_row) <= math.min(cell_end_row, end_row) then
 					table.insert(cells_to_clear, cell_id)
 				end
@@ -283,12 +262,12 @@ function M.clear_output_in_range(bufnr, start_row, end_row)
 	end
 
 	for _, cell_id in ipairs(cells_to_clear) do
-		local cell_info = cell_marks[cell_id]
+		local cell_info = state.get_cell(cell_id)
 		if cell_info then
-			-- Pulisce i marcatori di output
-			clear_cell_display(cell_info)
-			cell_info.outputs = {}
-			-- Pulisce i marcatori di prompt
+			state.clear_cell_outputs(cell_id)
+			M.redraw_cell(cell_id)
+
+			-- Pulisce solo i marcatori di prompt, che non vengono ridisegnati automaticamente
 			for _, mark_id in ipairs(cell_info.prompt_marks) do
 				pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
 			end
@@ -297,44 +276,6 @@ function M.clear_output_in_range(bufnr, start_row, end_row)
 	end
 
 	log.add(vim.log.levels.INFO, "Pulito l'output per " .. #cells_to_clear .. " cella/e.")
-end
-
---- Trova e pulisce le celle esistenti contenute nel range specificato.
-function M.find_and_clear_cell_at_range(bufnr, start_row, end_row)
-	local cells_to_remove = {}
-	for cell_id, cell_info in pairs(cell_marks) do
-		if cell_info.bufnr == bufnr then
-			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
-			local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.end_mark, {})
-
-			if pos_start and #pos_start > 0 and pos_end and #pos_end > 0 then
-				local cell_start_row = pos_start[1]
-				local cell_end_row = pos_end[1]
-
-				-- Controlla se il range della cella è contenuto nel nuovo range di esecuzione
-				if cell_start_row >= start_row and cell_end_row <= end_row then
-					-- Pulisce i marcatori visuali (output/prompt) dal buffer
-					for _, mark_id in ipairs(cell_info.output_marks) do
-						pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
-					end
-					for _, mark_id in ipairs(cell_info.prompt_marks) do
-						pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, mark_id)
-					end
-					-- Rimuove i marcatori invisibili di inizio e fine
-					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.start_mark)
-					pcall(vim.api.nvim_buf_del_extmark, bufnr, NS_ID, cell_info.end_mark)
-
-					-- Raccoglie l'ID della cella da rimuovere
-					table.insert(cells_to_remove, cell_id)
-				end
-			end
-		end
-	end
-
-	-- Rimuove tutte le celle identificate dalla tabella di tracciamento
-	for _, cell_id in ipairs(cells_to_remove) do
-		cell_marks[cell_id] = nil
-	end
 end
 
 --- NUOVO ---
@@ -416,8 +357,9 @@ function M.show_selectable_output(bufnr, cursor_row)
 	local target_cell_id
 	-- Trova la cella in cui si trova il cursore o la cella il cui output è più vicino
 	local best_candidate = { id = nil, distance = math.huge }
+	local NS_ID = state.get_namespace_id()
 
-	for cell_id, cell_info in pairs(cell_marks) do
+	for cell_id, cell_info in pairs(state.get_all_cells()) do
 		if cell_info.bufnr == bufnr then
 			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
 			if pos_start and #pos_start > 0 then
@@ -443,7 +385,7 @@ function M.show_selectable_output(bufnr, cursor_row)
 		return
 	end
 
-	local cell_info = cell_marks[target_cell_id]
+	local cell_info = state.get_cell(target_cell_id)
 	if not cell_info or not cell_info.outputs or #cell_info.outputs == 0 then
 		log.add(vim.log.levels.INFO, "La cella Jove trovata non ha output.")
 		return

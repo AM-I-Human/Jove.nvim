@@ -231,8 +231,8 @@ function M.execute_cell(kernel_name, cell_content, bufnr, start_row, end_row)
 		log.add(vim.log.levels.WARN, "Kernel '" .. kernel_name .. "' è occupato.")
 		return
 	end
-	output.find_and_clear_cell_at_range(bufnr, start_row, end_row)
-	local cell_id = output.create_cell_markers(bufnr, start_row, end_row)
+	state.find_and_remove_cells_in_range(bufnr, start_row, end_row)
+	local cell_id = state.add_cell(bufnr, start_row, end_row)
 	state.set_kernel_property(kernel_name, "current_execution_cell_id", cell_id)
 	status.update_status(kernel_name, "busy")
 	M.send_to_py_client(kernel_name, { command = "execute", payload = message.create_execute_request(cell_content) })

@@ -410,6 +410,78 @@ function M.render_history_reply(jupyter_msg)
 	vim.bo[bufnr].filetype = "python" -- o il filetype del kernel
 end
 
+--- Mostra l'output di una cella in una finestra flottante per la selezione.
+function M.show_selectable_output(bufnr, cursor_row)
+	local target_cell_id
+	-- Trova la cella in cui si trova il cursore o la cella il cui output è più vicino
+	local best_candidate = { id = nil, distance = math.huge }
+
+	for cell_id, cell_info in pairs(cell_marks) do
+		if cell_info.bufnr == bufnr then
+			local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.start_mark, {})
+			if pos_start and #pos_start > 0 then
+				local cell_start_row = pos_start[1]
+				-- Se il cursore è all'interno del range del codice sorgente della cella
+				local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, NS_ID, cell_info.end_mark, {})
+				if pos_end and #pos_end > 0 and cursor_row >= cell_start_row and cursor_row <= pos_end[1] then
+					best_candidate = { id = cell_id, distance = 0 }
+					break -- Trovata corrispondenza esatta
+				end
+				-- Altrimenti, calcola la distanza e tienila come candidata
+				local distance = math.abs(cursor_row - cell_start_row)
+				if distance < best_candidate.distance then
+					best_candidate = { id = cell_id, distance = distance }
+				end
+			end
+		end
+	end
+	target_cell_id = best_candidate.id
+
+	if not target_cell_id then
+		log.add(vim.log.levels.INFO, "Nessuna cella Jove trovata vicino alla posizione del cursore.")
+		return
+	end
+
+	local cell_info = cell_marks[target_cell_id]
+	if not cell_info or not cell_info.accumulated_lines or #cell_info.accumulated_lines == 0 then
+		log.add(vim.log.levels.INFO, "La cella Jove trovata non ha output di testo.")
+		return
+	end
+
+	-- Estrae il testo dall'output accumulato
+	local lines = {}
+	for _, line_chunks in ipairs(cell_info.accumulated_lines) do
+		local line_text = ""
+		for _, chunk in ipairs(line_chunks) do
+			line_text = line_text .. chunk[1]
+		end
+		table.insert(lines, line_text)
+	end
+
+	-- Crea e mostra la finestra flottante
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "hide"
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+	local width = math.floor(vim.o.columns * 0.7)
+	local height = math.min(#lines, math.floor(vim.o.lines * 0.5))
+
+	vim.api.nvim_open_win(buf, true, {
+		relative = "cursor",
+		width = width,
+		height = height,
+		row = 1,
+		col = 0,
+		style = "minimal",
+		border = "rounded",
+		title = "Jove Output (press 'q' to close)",
+		title_pos = "center",
+	})
+	-- Mappa 'q' per chiudere
+	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<cr>", { noremap = true, silent = true })
+end
+
 -- Mappa per i gestori dei messaggi iopub
 M.iopub_handlers = {
 	stream = M.render_stream,

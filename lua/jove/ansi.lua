@@ -72,14 +72,19 @@ function M.parse(text, default_hl)
 			table.insert(chunks, { text:sub(current_chunk_start, start - 1), current_hl })
 		end
 
-		-- Elabora il codice di escape
-		if code_str == "" or code_str == "0" then
-			current_hl = default_hl or "Normal" -- Reset
-		else
-			-- Parser molto semplice: prende solo il primo codice. Non gestisce grassetto, ecc.
-			local codes = vim.split(code_str, ";")
-			local color_code = codes[1]
-			current_hl = color_map[color_code] or current_hl
+		-- Elabora il codice di escape, gestendo sequenze multiple (es. "0;31" per reset e rosso)
+		local codes = vim.split(code_str, ";")
+		if #codes == 0 then -- `\x1b[m` is equivalent to `\x1b[0m`
+			codes = { "0" }
+		end
+
+		for _, code in ipairs(codes) do
+			if code == "0" or code == "" then
+				current_hl = default_hl or "Normal" -- Reset a default
+			elseif color_map[code] then
+				current_hl = color_map[code] -- Imposta il nuovo colore
+			end
+			-- Altri attributi come grassetto, ecc., sono ignorati per ora.
 		end
 
 		i = finish + 1

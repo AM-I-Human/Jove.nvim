@@ -115,7 +115,7 @@ local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
 
 	local lines_of_chunks = {}
 	for _, line in ipairs(vim.split(cleaned_text, "\n", { trimempty = true })) do
-		table.insert(lines_of_chunks, ansi.parse(line, "String"))
+		table.insert(lines_of_chunks, ansi.parse(line, "Normal"))
 	end
 
 	if #lines_of_chunks == 0 then
@@ -165,7 +165,7 @@ function M.render_stream(cell_id, jupyter_msg)
 	cleaned_text = cleaned_text:gsub(".*\r", "") -- Gestisce la sovrascrittura di riga
 	local lines_of_chunks = {}
 	for _, line in ipairs(vim.split(cleaned_text, "\n", { trimempty = true })) do
-		table.insert(lines_of_chunks, ansi.parse(line, "Comment"))
+		table.insert(lines_of_chunks, ansi.parse(line, "Normal"))
 	end
 
 	if #lines_of_chunks > 0 then

@@ -318,12 +318,46 @@ function M.list_kernels_cmd()
 	local kernel_list = kernel.list_running_kernels()
 	if #kernel_list == 0 or (#kernel_list == 1 and kernel_list[1]:match("Nessun kernel")) then
 		log.add(vim.log.levels.INFO, "Nessun kernel Jove gestito.")
-	else
-		log.add(vim.log.levels.INFO, "Kernel gestiti (info di debug):")
-		for _, status_line in ipairs(kernel_list) do
-			vim.api.nvim_echo({ { status_line, "Normal" } }, false, {})
-		end
+		return
 	end
+
+	-- Cerca un buffer esistente o creane uno nuovo
+	local buf = vim.fn.bufnr("JoveKernels")
+	if buf == -1 then
+		buf = vim.api.nvim_create_buf(false, true)
+		vim.bo[buf].buftype = "nofile"
+		vim.bo[buf].bufhidden = "hide"
+		vim.bo[buf].swapfile = false
+		vim.api.nvim_buf_set_name(buf, "JoveKernels")
+	end
+
+	-- Aggiorna il contenuto del buffer
+	vim.bo[buf].readonly = false
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, kernel_list)
+	vim.bo[buf].readonly = true
+	vim.bo[buf].filetype = "log" -- Usa lo stesso ft di JoveLog per un highlighting simile
+
+	-- Calcola dimensioni e posizione della finestra
+	local width = math.floor(vim.o.columns * 0.6)
+	local height = math.min(#kernel_list + 2, math.floor(vim.o.lines * 0.5))
+	local row = math.floor((vim.o.lines - height) / 2)
+	local col = math.floor((vim.o.columns - width) / 2)
+
+	-- Apri la finestra flottante
+	vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		row = row,
+		col = col,
+		style = "minimal",
+		border = "rounded",
+		title = "Jove Kernels",
+		title_pos = "center",
+	})
+
+	-- Mappa 'q' per chiudere la finestra
+	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<cr>", { noremap = true, silent = true })
 end
 
 -- Comando per mostrare i log

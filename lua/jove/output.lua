@@ -125,7 +125,7 @@ local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
 	-- Aggiunge il prompt "Out[n]:" se necessario
 	if output_type == "execute_result" and content.execution_count then
 		local prompt = string.format("Out[%d]: ", content.execution_count)
-		table.insert(lines_of_chunks[1], 1, { prompt, "Question" })
+		table.insert(lines_of_chunks[1], 1, { prompt, "JoveOutPrompt" })
 	end
 
 	if is_update and display_id then
@@ -133,14 +133,27 @@ local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
 		if not cell_info then
 			return
 		end
-		-- Trova l'output esistente e lo aggiorna
-		for _, output in ipairs(cell_info.outputs) do
+
+		local updated = false
+		-- Cerca l'output esistente con lo stesso display_id e lo aggiorna
+		for i, output in ipairs(cell_info.outputs) do
 			if output.display_id == display_id then
-				output.content = lines_of_chunks
-				M.redraw_cell(cell_id)
-				return
+				cell_info.outputs[i].content = lines_of_chunks
+				updated = true
+				break
 			end
 		end
+
+		-- Se non è stato trovato nessun output da aggiornare, significa che questo è il
+		-- primo messaggio per questo display_id, quindi lo aggiungiamo come nuovo.
+		if not updated then
+			state.add_output_to_cell(cell_id, {
+				type = output_type,
+				content = lines_of_chunks,
+				display_id = display_id,
+			})
+		end
+		M.redraw_cell(cell_id)
 	else
 		-- Aggiunge come nuovo output
 		state.add_output_to_cell(cell_id, {

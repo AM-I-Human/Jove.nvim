@@ -194,6 +194,7 @@ function M.handle_py_client_message(kernel_name, json_line)
 			output.render_sixel_image(k_info.current_execution_cell_id, data.payload)
 		end
 	elseif msg_type == "iopub" then
+		log.add(vim.log.levels.DEBUG, "Received IOPub message: " .. vim.inspect(jupyter_msg))
 		local k_info = state.get_kernel(kernel_name)
 		if k_info and k_info.current_execution_cell_id then
 			local iopub_msg_type = jupyter_msg.header.msg_type

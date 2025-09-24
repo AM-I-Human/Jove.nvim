@@ -391,7 +391,10 @@ function M.render_history_reply(jupyter_msg)
 	for _, entry in ipairs(history) do
 		-- entry è una tabella: {session, line_number, source}
 		table.insert(lines, string.format("-- In[%d]", entry[2]))
-		table.insert(lines, entry[3])
+		local source_lines = vim.split(entry[3], "\n")
+		for _, line in ipairs(source_lines) do
+			table.insert(lines, line)
+		end
 		table.insert(lines, "") -- Riga vuota per separare
 	end
 

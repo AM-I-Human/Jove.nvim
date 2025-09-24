@@ -3,6 +3,7 @@
 -- per la visualizzazione dello stato.
 local M = {}
 local state = require("jove.state")
+local ui = require("jove.ui")
 
 local icons = {
 	idle = "✓",
@@ -14,7 +15,14 @@ local icons = {
 
 --- Aggiorna lo stato di un kernel. Proxy per `state.update_kernel_status`.
 function M.update_status(kernel_name, status)
-	state.update_kernel_status(kernel_name, status or "disconnected")
+	local new_status = status or "disconnected"
+	state.update_kernel_status(kernel_name, new_status)
+
+	if new_status == "starting" or new_status == "busy" then
+		ui.show_spinner(kernel_name, new_status)
+	else
+		ui.hide_spinner()
+	end
 end
 
 --- Imposta il kernel attivo. Proxy per `state.set_active_kernel_name`.

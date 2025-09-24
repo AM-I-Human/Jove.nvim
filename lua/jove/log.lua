@@ -32,8 +32,8 @@ function M.add(level, message)
 		end
 	end
 
-	-- Continua a notificare per i messaggi importanti
-	if level >= vim.log.levels.INFO then
+	-- Notifica solo per avvisi ed errori, i messaggi INFO vanno solo nel log
+	if level >= vim.log.levels.WARN then
 		vim.notify(message, level)
 	end
 end

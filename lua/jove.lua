@@ -64,6 +64,7 @@ function M.setup(user_opts)
 
 	-- Carica le regole di highlighting
 	require("jove.highlight")
+	require("jove.ansi").setup_highlights()
 end
 
 function M.get_config()

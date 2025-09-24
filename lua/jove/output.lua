@@ -3,17 +3,18 @@
 local M = {}
 local log = require("jove.log")
 local state = require("jove.state")
---- Pulisce una stringa dai codici di escape ANSI e da altri caratteri non stampabili.
+local ansi = require("jove.ansi")
+--- Pulisce una stringa da caratteri di controllo non desiderati.
+-- MANTIENE i codici di escape ANSI per il parsing dei colori.
 -- @param str La stringa da pulire.
 -- @return La stringa pulita.
 local function clean_string(str)
 	if not str then
 		return ""
 	end
-	-- Rimuove i codici di colore/stile ANSI (es. ^[[31m)
-	local cleaned = string.gsub(str, "\x1b%[[%d;]*m", "")
-	-- Rimuove i caratteri nulli (^@) che a volte vengono inseriti
-	cleaned = string.gsub(cleaned, "\0", "")
+	-- Rimuove solo caratteri specifici come NUL, ma non le sequenze ANSI.
+	local cleaned = string.gsub(str, "\0", "")
+	-- Le barre di avanzamento possono usare \r per sovrascrivere la riga. Lo gestiamo a parte.
 	return cleaned
 end
 
@@ -94,28 +95,59 @@ function M.render_sixel_image(cell_id, sixel_string)
 	M.redraw_cell(cell_id)
 end
 
-local function add_text_plain_output(cell_id, jupyter_msg, with_prompt, output_type, highlight_group)
-	if not jupyter_msg or not jupyter_msg.content or not jupyter_msg.content.data then
+--- Funzione unificata per elaborare e aggiungere/aggiornare output di tipo "rich text".
+local function process_rich_output(cell_id, jupyter_msg, output_type, is_update)
+	local content = jupyter_msg.content
+	if not content or not content.data then
 		return
 	end
-	local text_plain = jupyter_msg.content.data["text/plain"]
+	local text_plain = content.data["text/plain"]
 	if not (text_plain and text_plain ~= "") then
 		return
 	end
 
-	local exec_count = jupyter_msg.content.execution_count
-	local cleaned_text = clean_string(text_plain)
-	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
+	-- Estrae il display_id per gli aggiornamenti
+	local display_id = (content.transient and content.transient.display_id) or nil
 
-	if #lines > 0 then
-		if with_prompt and exec_count then
-			lines[1] = string.format("Out[%d]: %s", exec_count, lines[1])
+	local cleaned_text = clean_string(text_plain)
+	-- Gestisce `\r` per sovrascrivere la riga, tipico delle barre di avanzamento
+	cleaned_text = cleaned_text:gsub(".*\r", "")
+
+	local lines_of_chunks = {}
+	for _, line in ipairs(vim.split(cleaned_text, "\n", { trimempty = true })) do
+		table.insert(lines_of_chunks, ansi.parse(line, "String"))
+	end
+
+	if #lines_of_chunks == 0 then
+		return
+	end
+
+	-- Aggiunge il prompt "Out[n]:" se necessario
+	if output_type == "execute_result" and content.execution_count then
+		local prompt = string.format("Out[%d]: ", content.execution_count)
+		table.insert(lines_of_chunks[1], 1, { prompt, "Question" })
+	end
+
+	if is_update and display_id then
+		local cell_info = state.get_cell(cell_id)
+		if not cell_info then
+			return
 		end
-		local lines_of_chunks = {}
-		for _, line in ipairs(lines) do
-			table.insert(lines_of_chunks, { { line, highlight_group } })
+		-- Trova l'output esistente e lo aggiorna
+		for _, output in ipairs(cell_info.outputs) do
+			if output.display_id == display_id then
+				output.content = lines_of_chunks
+				M.redraw_cell(cell_id)
+				return
+			end
 		end
-		state.add_output_to_cell(cell_id, { type = output_type, content = lines_of_chunks })
+	else
+		-- Aggiunge come nuovo output
+		state.add_output_to_cell(cell_id, {
+			type = output_type,
+			content = lines_of_chunks,
+			display_id = display_id,
+		})
 		M.redraw_cell(cell_id)
 	end
 end
@@ -128,22 +160,28 @@ function M.render_stream(cell_id, jupyter_msg)
 	if not text or text == "" then
 		return
 	end
+
 	local cleaned_text = clean_string(text)
-	local lines = vim.split(cleaned_text:gsub("\r\n", "\n"):gsub("\r", "\n"), "\n", { trimempty = true })
-	if #lines > 0 then
-		local lines_of_chunks = {}
-		for _, line in ipairs(lines) do
-			table.insert(lines_of_chunks, { { line, "Comment" } })
+	cleaned_text = cleaned_text:gsub(".*\r", "") -- Gestisce la sovrascrittura di riga
+	local lines_of_chunks = {}
+	for _, line in ipairs(vim.split(cleaned_text, "\n", { trimempty = true })) do
+		table.insert(lines_of_chunks, ansi.parse(line, "Comment"))
+	end
+
+	if #lines_of_chunks > 0 then
+		-- Heuristic: stream updates often replace the last stream output.
+		local cell_info = state.get_cell(cell_id)
+		if cell_info and #cell_info.outputs > 0 and cell_info.outputs[#cell_info.outputs].type == "stream" then
+			cell_info.outputs[#cell_info.outputs].content = lines_of_chunks
+		else
+			state.add_output_to_cell(cell_id, { type = "stream", content = lines_of_chunks })
 		end
-		state.add_output_to_cell(cell_id, { type = "stream", content = lines_of_chunks })
 		M.redraw_cell(cell_id)
 	end
 end
 
 function M.render_execute_result(cell_id, jupyter_msg)
-	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
-	-- Questa funzione gestisce solo il fallback testuale.
-	add_text_plain_output(cell_id, jupyter_msg, true, "execute_result", "String") -- with prompt
+	process_rich_output(cell_id, jupyter_msg, "execute_result", false)
 end
 
 function M.render_input_prompt(cell_id, jupyter_msg)
@@ -229,9 +267,27 @@ function M.render_error(cell_id, jupyter_msg)
 end
 
 function M.render_display_data(cell_id, jupyter_msg)
-	-- La gestione delle immagini è ora fatta in Python e invia un messaggio separato.
-	-- Questa funzione gestisce solo il fallback testuale.
-	add_text_plain_output(cell_id, jupyter_msg, false, "display_data", "String") -- without prompt
+	process_rich_output(cell_id, jupyter_msg, "display_data", false)
+end
+
+function M.render_update_display_data(cell_id, jupyter_msg)
+	process_rich_output(cell_id, jupyter_msg, "display_data", true)
+end
+
+function M.render_clear_output(cell_id, jupyter_msg)
+	local wait = jupyter_msg.content.wait or false
+
+	if wait then
+		-- Imposta un flag sulla cella per indicare che l'output
+		-- deve essere cancellato al prossimo messaggio di output.
+		local cell = state.get_cell(cell_id)
+		if cell then
+			cell.pending_clear = true
+		end
+	else
+		state.clear_cell_outputs(cell_id)
+		M.redraw_cell(cell_id)
+	end
 end
 
 --- Pulisce l'output (testo virtuale e prompt) per le celle che si sovrappongono a un dato range.
@@ -442,7 +498,9 @@ end
 M.iopub_handlers = {
 	stream = M.render_stream,
 	execute_result = M.render_execute_result,
-	display_data = M.render_display_data, -- Gestisce immagini o testo
+	display_data = M.render_display_data,
+	update_display_data = M.render_update_display_data,
+	clear_output = M.render_clear_output,
 	error = M.render_error,
 	execute_input = M.render_input_prompt,
 }

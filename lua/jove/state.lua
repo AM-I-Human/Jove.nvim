@@ -112,6 +112,7 @@ function M.add_cell(bufnr, start_row, end_row)
 		output_marks = {}, -- Marcatori extmark visuali
 		prompt_marks = {},
 		outputs = {}, -- Struttura dati per gli output
+		pending_clear = false, -- Per `clear_output(wait=true)`
 	}
 	return cell_id
 end

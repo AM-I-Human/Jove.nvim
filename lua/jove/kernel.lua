@@ -8,22 +8,6 @@ local message = require("jove.message")
 local output = require("jove.output")
 local log = require("jove.log")
 
-local function get_plugin_root()
-	-- Get the path of the current Lua source file
-	function get_plugin_path(plugin_name)
-		local paths = vim.api.nvim_list_runtime_paths()
-		for _, path in ipairs(paths) do
-			if path:match(plugin_name .. "$") then
-				return path
-			end
-		end
-		return "."
-	end
-
-	local my_plugin_path = get_plugin_path("Jove.nvim")
-	return my_plugin_path
-end
-
 function M.start(kernel_name, on_ready_callback)
 	if not kernel_name then
 		log.add(vim.log.levels.ERROR, "Kernel name is nil")
@@ -116,7 +100,7 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	local jove_config = config_module.get_config()
 	local image_width = tostring(jove_config.image_width or 120)
 	local image_renderer = jove_config.image_renderer or "sixel"
-	local py_client_script = get_plugin_root() .. "/python/py_kernel_client.py"
+	local py_client_script = vim.g.jove_plugin_root .. "/python/py_kernel_client.py"
 	-- Usa l'eseguibile Python di Neovim per il client, che dovrebbe avere jupyter_client.
 	local executable = vim.g.python3_host_prog
 		or vim.g.jove_default_python

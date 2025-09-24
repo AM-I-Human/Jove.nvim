@@ -61,6 +61,9 @@ function M.setup(user_opts)
 	log.add(vim.log.levels.DEBUG, "Configurazione finale: " .. vim.inspect(config))
 
 	log.add(vim.log.levels.INFO, "[Jove] setup completato.")
+
+	-- Carica le regole di highlighting
+	require("jove.highlight")
 end
 
 function M.get_config()

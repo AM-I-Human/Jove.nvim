@@ -335,7 +335,7 @@ function M.list_kernels_cmd()
 	vim.bo[buf].readonly = false
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, kernel_list)
 	vim.bo[buf].readonly = true
-	vim.bo[buf].filetype = "log" -- Usa lo stesso ft di JoveLog per un highlighting simile
+	vim.bo[buf].filetype = "jove_kernels" -- Usa un filetype dedicato per l'highlighting
 
 	-- Calcola dimensioni e posizione della finestra
 	local width = math.floor(vim.o.columns * 0.6)

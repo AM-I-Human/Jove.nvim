@@ -22,7 +22,7 @@ local function deep_merge(tbl1, tbl2)
 end
 
 local defaults = {
-	image_renderer = "sixel",
+	image_renderer = "iip",
 	image_width = 80,
 	kernels = {
 		python = {

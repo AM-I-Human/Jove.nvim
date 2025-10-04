@@ -4,6 +4,69 @@ local M = {}
 local log = require("jove.log")
 local state = require("jove.state")
 local ansi = require("jove.ansi")
+
+--- NUOVO: Gestisce il rendering di un'immagine in un popup.
+-- Se l'immagine viene processata, restituisce true. Altrimenti, false.
+local function process_popup_image(cell_id, jupyter_msg, is_update)
+	local content = jupyter_msg.content
+	if not content or not content.data or not content.data["image/png"] then
+		return false -- Non è un messaggio con immagine
+	end
+
+	local b64_data = content.data["image/png"]
+	local ok, decoded_data = pcall(vim.fn.base64decode, b64_data)
+	if not ok or not decoded_data then
+		log.add(vim.log.levels.ERROR, "Impossibile decodificare l'immagine base64.")
+		return false -- Lascia che il gestore di testo plain faccia da fallback
+	end
+
+	local tmp_file = vim.fn.tempname() .. ".png"
+	-- `writefile` richiede una lista di stringhe.
+	local write_ok = pcall(vim.fn.writefile, { decoded_data }, tmp_file, "b")
+	if not write_ok then
+		log.add(vim.log.levels.ERROR, "Impossibile scrivere l'immagine nel file temporaneo: " .. tmp_file)
+		return false
+	end
+
+	require("jove.image_renderer").render_image_popup(tmp_file)
+
+	local display_id = (content.transient and content.transient.display_id) or nil
+	local output_content = { { "[Immagine visualizzata in popup]", "Comment" } }
+	local output_type = "image_popup"
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return true
+	end
+
+	if is_update and display_id then
+		local updated = false
+		for i, output in ipairs(cell_info.outputs) do
+			if output.display_id == display_id then
+				cell_info.outputs[i].content = output_content
+				cell_info.outputs[i].type = output_type
+				updated = true
+				break
+			end
+		end
+		if not updated then -- Primo messaggio per questo display_id
+			state.add_output_to_cell(cell_id, {
+				type = output_type,
+				content = output_content,
+				display_id = display_id,
+			})
+		end
+		M.redraw_cell(cell_id)
+	else
+		-- Aggiunge come nuovo output
+		state.add_output_to_cell(cell_id, {
+			type = output_type,
+			content = output_content,
+			display_id = display_id,
+		})
+		M.redraw_cell(cell_id)
+	end
+	return true -- Gestito
+end
 --- Pulisce una stringa da caratteri di controllo non desiderati.
 -- MANTIENE i codici di escape ANSI per il parsing dei colori.
 -- @param str La stringa da pulire.
@@ -53,6 +116,10 @@ function M.redraw_cell(cell_id)
 			end
 		elseif output.type == "image_iip" or output.type == "image_sixel" then
 			table.insert(virt_lines, { { output.content, "Normal" } })
+		elseif output.type == "image_popup" then
+			for _, line_chunks in ipairs(output.content) do
+				table.insert(virt_lines, line_chunks)
+			end
 		end
 	end
 
@@ -307,10 +374,20 @@ function M.render_error(cell_id, jupyter_msg)
 end
 
 function M.render_display_data(cell_id, jupyter_msg)
+	if require("jove").get_config().image_renderer == "popup" then
+		if process_popup_image(cell_id, jupyter_msg, false) then
+			return
+		end
+	end
 	process_rich_output(cell_id, jupyter_msg, "display_data", false)
 end
 
 function M.render_update_display_data(cell_id, jupyter_msg)
+	if require("jove").get_config().image_renderer == "popup" then
+		if process_popup_image(cell_id, jupyter_msg, true) then
+			return
+		end
+	end
 	process_rich_output(cell_id, jupyter_msg, "display_data", true)
 end
 
@@ -502,6 +579,14 @@ function M.show_selectable_output(bufnr, cursor_row)
 			table.insert(lines, "[Immagine: IIP]")
 		elseif output.type == "image_sixel" then
 			table.insert(lines, "[Immagine: Sixel]")
+		elseif output.type == "image_popup" then
+			for _, line_chunks in ipairs(output.content) do
+				local line_text = ""
+				for _, chunk in ipairs(line_chunks) do
+					line_text = line_text .. chunk[1]
+				end
+				table.insert(lines, line_text)
+			end
 		end
 	end
 

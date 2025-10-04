@@ -38,6 +38,7 @@ require('lazy').setup({
             { '<Leader>Jco', ':JoveClearOutput<cr>', mode = { 'n', 'x', 'v' }, desc = 'Jove: Clear output' },
             { '<Leader>JL', '<cmd>JoveLog<cr>', mode = { 'n' }, desc = 'Jove: Show logs' },
             { '<Leader>Jri', '<cmd>JoveRenderImage ', mode = { 'n' }, desc = 'Jove: Render image' },
+            { '<Leader>Jti', '<cmd>JoveTestImage<cr>', mode = { 'n' }, desc = 'Jove: Test immagine popup' },
         },
         config = function()
             -- This is the standard way to set up a plugin

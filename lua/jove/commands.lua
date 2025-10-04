@@ -394,7 +394,7 @@ end
 
 --- NUOVO: Comando per testare il rendering di un'immagine in un popup.
 function M.test_image_cmd(args)
-	local image_path = args.fargs[1]
+	local image_path = "C:\\Users\\andre\\Pictures\\Andrea\\Small_SALOTTO-CULTURALE_MG_6719.jpg"
 	if not image_path or image_path == "" then
 		log.add(vim.log.levels.ERROR, "Percorso dell'immagine non specificato.")
 		return
@@ -514,8 +514,7 @@ vim.api.nvim_create_user_command("JoveRenderImage", M.render_image_cmd, {
 })
 
 vim.api.nvim_create_user_command("JoveTestImage", M.test_image_cmd, {
-	nargs = 1,
-	complete = "file",
+	nargs = 0,
 	desc = "Renderizza un'immagine in una finestra popup (test).",
 })
 

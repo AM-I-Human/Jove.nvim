@@ -21,6 +21,14 @@ local function deep_merge(tbl1, tbl2)
 	return result
 end
 
+-- Questo è necessario affinché matplotlib produca output PNG inline che possiamo catturare.
+local python_setup_code = table.concat({
+	"from IPython import get_ipython",
+	"if get_ipython():",
+	"    get_ipython().run_line_magic('matplotlib', 'inline')",
+	"    get_ipython().run_line_magic('config', \"InlineBackend.figure_format = 'png'\")",
+}, "\n")
+
 local defaults = {
 	image_renderer = "popup",
 	image_width = 80,
@@ -29,6 +37,7 @@ local defaults = {
 			cmd = "{executable} -m ipykernel -f {connection_file}",
 			filetypes = { "python" },
 			languages = { "python", "py" }, -- Per i blocchi di codice markdown
+			setup_code = python_setup_code,
 		},
 	},
 }

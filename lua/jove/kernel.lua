@@ -8,6 +8,23 @@ local message = require("jove.message")
 local output = require("jove.output")
 local log = require("jove.log")
 
+--- NUOVO: Esegue il codice di setup per un kernel (es. per matplotlib).
+local function execute_setup_code(kernel_name)
+	local kernel_info = state.get_kernel(kernel_name)
+	if not kernel_info or not kernel_info.config.setup_code then
+		return
+	end
+
+	log.add(vim.log.levels.INFO, "Esecuzione del codice di setup per il kernel '" .. kernel_name .. "'...")
+
+	local req = message.create_execute_request(kernel_info.config.setup_code)
+	-- Esegui in modo silenzioso per non sporcare la cronologia o l'output
+	req.content.silent = true
+	req.content.store_history = false
+
+	M.send_to_py_client(kernel_name, { command = "execute", payload = req })
+end
+
 function M.start(kernel_name, on_ready_callback)
 	if not kernel_name then
 		log.add(vim.log.levels.ERROR, "Kernel name is nil")
@@ -100,6 +117,13 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 	local jove_config = config_module.get_config()
 	local image_width = tostring(jove_config.image_width or 120)
 	local image_renderer = jove_config.image_renderer or "sixel"
+
+	-- Se il renderer è 'popup', il client Python non deve processare le immagini.
+	-- Lua gestirà i dati grezzi 'display_data'.
+	if image_renderer == "popup" then
+		image_renderer = "none"
+	end
+
 	local py_client_script = vim.g.jove_plugin_root .. "/python/py_kernel_client.py"
 	-- Usa l'eseguibile Python di Neovim per il client, che dovrebbe avere jupyter_client.
 	local executable = vim.g.python3_host_prog
@@ -160,6 +184,7 @@ function M.handle_py_client_message(kernel_name, json_line)
 
 	if msg_type == "status" and data.message == "connected" then
 		status.update_status(kernel_name, "idle")
+		execute_setup_code(kernel_name)
 		local k_info = state.get_kernel(kernel_name)
 		if k_info and k_info.on_ready_callback then
 			local cb = k_info.on_ready_callback

@@ -70,4 +70,32 @@ function M.render_image(bufnr, lineno, image_path)
 	})
 end
 
+--- NUOVO: Renderizza un'immagine in una finestra popup Tcl/Tk.
+-- @param image_path (string) Il percorso del file immagine.
+function M.render_image_popup(image_path)
+	local popup_script = vim.g.jove_plugin_root .. "/python/popup_renderer.py"
+	-- Usa l'eseguibile Python di Neovim per il client
+	local executable = vim.g.python3_host_prog
+		or vim.g.jove_default_python
+		or "python"
+
+	local cmd = {
+		executable,
+		"-u",
+		popup_script,
+		image_path,
+	}
+
+	vim.fn.jobstart(cmd, {
+		on_stderr = function(_, data, _)
+			if data then
+				require("jove.log").add(
+					vim.log.levels.ERROR,
+					"Image Popup stderr: " .. table.concat(data, "\n")
+				)
+			end
+		end,
+	})
+end
+
 return M

@@ -179,6 +179,8 @@ function M.handle_py_client_message(kernel_name, json_line)
 		return
 	end
 
+	log.add(vim.log.levels.DEBUG, "Raw message from py_kernel_client: " .. json_line)
+
 	local msg_type = data.type
 	local jupyter_msg = data.message
 

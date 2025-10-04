@@ -5,6 +5,40 @@ local log = require("jove.log")
 local state = require("jove.state")
 local ansi = require("jove.ansi")
 
+-- Fallback in puro Lua per la decodifica base64.
+local function lua_b64_decode(data)
+	log.add(vim.log.levels.WARN, "[Jove] Funzione nativa 'base64decode' fallita o non trovata. Uso il fallback in Lua.")
+	local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+	data = string.gsub(data, "[^" .. b64 .. "]", "")
+	local out = {}
+	for i = 1, #data, 4 do
+		local c1, c2, c3, c4 = string.sub(data, i, i + 3):byte(1, 4)
+		c1 = b64:find(string.char(c1), 1, true) - 1
+		c2 = b64:find(string.char(c2), 1, true) - 1
+		table.insert(out, string.char(bit.bor(bit.lshift(c1, 2), bit.rshift(c2, 4))))
+		c3 = b64:find(string.char(c3), 1, true)
+		if c3 then
+			c3 = c3 - 1
+			table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c2, 0x0F), 4), bit.rshift(c3, 2))))
+			c4 = b64:find(string.char(c4), 1, true)
+			if c4 then
+				c4 = c4 - 1
+				table.insert(out, string.char(bit.bor(bit.lshift(bit.band(c3, 0x03), 6), c4)))
+			end
+		end
+	end
+	return table.concat(out)
+end
+
+--- Tenta di usare la funzione nativa di Neovim, altrimenti usa il fallback.
+local function b64_decode(b64_data)
+	local ok, decoded = pcall(vim.fn.base64decode, b64_data)
+	if ok and decoded then
+		return decoded
+	end
+	return lua_b64_decode(b64_data)
+end
+
 --- NUOVO: Gestisce il rendering di un'immagine in un popup.
 -- Se l'immagine viene processata, restituisce true. Altrimenti, false.
 local function process_popup_image(cell_id, jupyter_msg, is_update)
@@ -14,9 +48,9 @@ local function process_popup_image(cell_id, jupyter_msg, is_update)
 	end
 
 	local b64_data = content.data["image/png"]
-	local ok, decoded_data = pcall(vim.fn.base64decode, b64_data)
-	if not ok or not decoded_data then
-		log.add(vim.log.levels.ERROR, "Impossibile decodificare l'immagine base64.")
+	local decoded_data = b64_decode(b64_data)
+	if not decoded_data or decoded_data == "" then
+		log.add(vim.log.levels.ERROR, "Impossibile decodificare l'immagine base64 o i dati sono vuoti.")
 		return false -- Lascia che il gestore di testo plain faccia da fallback
 	end
 

@@ -7,6 +7,7 @@ import os
 from queue import Empty
 import base64
 import io
+from typing import Any, Dict, Optional
 
 try:
     from PIL import Image
@@ -19,25 +20,32 @@ except ImportError:
     SixelWriter = None
 
 # Configurazione del logging (semplice, per debug)
-LOG_FILE_PATH = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
+LOG_FILE_PATH: str = os.path.join(os.path.expanduser("~"), "jove_py_client.log")
 
 
-def log_message(message):
+def log_message(message: str) -> None:
     # Appends a message to the log file with a timestamp.
     with open(LOG_FILE_PATH, "a") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
 
 
 class KernelClient:
-    def __init__(self, connection_file_path, image_width=80, image_renderer="sixel"):
+    def __init__(
+        self,
+        connection_file_path: str,
+        image_width: int = 80,
+        image_renderer: str = "sixel",
+    ) -> None:
         log_message(
             f"Initializing KernelClient with connection file: {connection_file_path}, image width: {image_width}, renderer: {image_renderer}"
         )
-        self.image_width = image_width
-        self.image_renderer = image_renderer
+        self.image_width: int = image_width
+        self.image_renderer: str = image_renderer
         try:
-            self.kc = jupyter_client.BlockingKernelClient(
-                connection_file=connection_file_path
+            self.kc: jupyter_client.BlockingKernelClient = (
+                jupyter_client.BlockingKernelClient(
+                    connection_file=connection_file_path
+                )
             )
             self.kc.load_connection_file()
             self.kc.start_channels()
@@ -49,8 +57,8 @@ class KernelClient:
             )
             sys.exit(1)
 
-        self.stop_event = threading.Event()
-        self.kernel_listener_thread = threading.Thread(
+        self.stop_event: threading.Event = threading.Event()
+        self.kernel_listener_thread: threading.Thread = threading.Thread(
             target=self._listen_kernel, daemon=True
         )
         self.kernel_listener_thread.start()
@@ -63,7 +71,7 @@ class KernelClient:
             }
         )
 
-    def _listen_kernel(self):
+    def _listen_kernel(self) -> None:
         log_message("Kernel listener thread running.")
         while not self.stop_event.is_set():
             try:
@@ -99,7 +107,7 @@ class KernelClient:
             except Exception as e:
                 log_message(f"Kernel Listener thread error: {e}")
 
-    def send_to_lua(self, data):
+    def send_to_lua(self, data: Dict[str, Any]) -> None:
         # Sends a JSON-serialized message to the Lua parent process via stdout.
         try:
             json_data = json.dumps(data, default=repr)
@@ -108,7 +116,7 @@ class KernelClient:
         except Exception as e:
             log_message(f"Error sending data to Lua: {e} (Data was: {str(data)[:200]})")
 
-    def _render_to_sixel(self, img, target_width):
+    def _render_to_sixel(self, img: "Image.Image", target_width: int) -> Optional[str]:
         if not SixelWriter:
             log_message("libsixel-python not installed. Cannot use Sixel renderer.")
             return None
@@ -127,7 +135,7 @@ class KernelClient:
         writer.draw(resized_img)
         return d.getvalue().decode('ascii')
 
-    def handle_image_output(self, data):
+    def handle_image_output(self, data: Dict[str, str]) -> bool:
         target_width = self.image_width
         if not Image:
             log_message("Pillow library not installed.")
@@ -160,7 +168,7 @@ class KernelClient:
         return False
 
 
-    def send_execute_request(self, jupyter_msg_payload):
+    def send_execute_request(self, jupyter_msg_payload: Dict[str, Any]) -> None:
         log_message("Preparing to send execute_request.")
         try:
             content = jupyter_msg_payload.get("content", {})
@@ -195,7 +203,9 @@ class KernelClient:
                 }
             )
 
-    def send_inspect_request(self, content, high_detail=False):
+    def send_inspect_request(
+        self, content: Dict[str, Any], high_detail: bool = False
+    ) -> None:
         """Sends an inspect_request to the kernel."""
         log_message(
             f"Sending inspect_request for code: '{content.get('code')}' at pos {content.get('cursor_pos')}"
@@ -214,7 +224,7 @@ class KernelClient:
 
     # --- METODI CORRETTI ---
 
-    def send_interrupt_request(self):
+    def send_interrupt_request(self) -> None:
         """Sends an interrupt_request to the kernel via the control channel."""
         log_message("Sending interrupt_request to kernel.")
         try:
@@ -229,7 +239,7 @@ class KernelClient:
                 {"type": "error", "message": f"Error sending interrupt_request: {e}"}
             )
 
-    def send_restart_request(self):
+    def send_restart_request(self) -> None:
         """Sends a shutdown_request with restart=True to the kernel."""
         log_message("Requesting kernel restart.")
         try:
@@ -245,7 +255,7 @@ class KernelClient:
                 {"type": "error", "message": f"Error on kernel restart: {e}"}
             )
 
-    def send_history_request(self, content):
+    def send_history_request(self, content: Dict[str, Any]) -> None:
         """Sends a history_request to the kernel."""
         log_message("Sending history_request.")
         try:
@@ -260,7 +270,7 @@ class KernelClient:
                 {"type": "error", "message": f"Error sending history_request: {e}"}
             )
 
-    def process_command(self, command_data):
+    def process_command(self, command_data: Dict[str, Any]) -> None:
         command = command_data.get("command")
         payload = command_data.get("payload")
         log_message(f"Processing command from Lua: {command}")
@@ -310,7 +320,7 @@ class KernelClient:
                 }
             )
 
-    def run(self):
+    def run(self) -> None:
         log_message(
             "Python KernelClient now running and listening for commands from Lua via stdin."
         )
@@ -349,7 +359,7 @@ class KernelClient:
         finally:
             self.stop()
 
-    def stop(self):
+    def stop(self) -> None:
         log_message("Stopping KernelClient...")
         self.stop_event.set()
         if self.kernel_listener_thread and self.kernel_listener_thread.is_alive():

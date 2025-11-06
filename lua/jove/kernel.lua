@@ -116,13 +116,9 @@ end
 function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_id_ref, on_ready_callback)
 	local jove_config = config_module.get_config()
 	local image_width = tostring(jove_config.image_width or 120)
-	local image_renderer = jove_config.image_renderer or "sixel"
-
-	-- Se il renderer è 'popup', il client Python non deve processare le immagini.
-	-- Lua gestirà i dati grezzi 'display_data'.
-	if image_renderer == "popup" then
-		image_renderer = "none"
-	end
+	-- Passiamo sempre "none" al client Python. Tutta la logica di rendering delle
+	-- immagini (inline o popup) viene gestita da Lua per coerenza.
+	local image_renderer = "none"
 
 	local py_client_script = vim.g.jove_plugin_root .. "/python/py_kernel_client.py"
 	-- Usa l'eseguibile Python di Neovim per il client, che dovrebbe avere jupyter_client.
@@ -209,16 +205,6 @@ function M.handle_py_client_message(kernel_name, json_line)
 		elseif shell_msg_type == "interrupt_reply" then
 			log.add(vim.log.levels.INFO, "Kernel interrotto con successo.")
 			status.update_status(kernel_name, "idle")
-		end
-	elseif msg_type == "image_iip" then
-		local k_info = state.get_kernel(kernel_name)
-		if k_info and k_info.current_execution_cell_id then
-			output.render_iip_image(k_info.current_execution_cell_id, data.payload)
-		end
-	elseif msg_type == "image_sixel" then
-		local k_info = state.get_kernel(kernel_name)
-		if k_info and k_info.current_execution_cell_id then
-			output.render_sixel_image(k_info.current_execution_cell_id, data.payload)
 		end
 	elseif msg_type == "iopub" then
 		log.add(vim.log.levels.DEBUG, "Received IOPub message: " .. vim.inspect(jupyter_msg))

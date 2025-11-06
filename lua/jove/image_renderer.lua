@@ -24,7 +24,7 @@ path = r'%s'
 if path not in sys.path:
     sys.path.append(path)
 ]], python_path)
-	vim.fn.py3eval(python_code)
+	vim.cmd("py3 << EOF\n" .. python_code .. "\nEOF")
 	M._python_path_setup = true
 end
 

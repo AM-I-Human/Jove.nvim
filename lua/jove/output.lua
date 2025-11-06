@@ -39,6 +39,62 @@ local function b64_decode(b64_data)
 	return lua_b64_decode(b64_data)
 end
 
+--- NUOVO: Gestisce il rendering di un'immagine inline.
+-- Se l'immagine viene processata, restituisce true. Altrimenti, false.
+local function process_inline_image(cell_id, jupyter_msg, is_update)
+	local content = jupyter_msg.content
+	if not content or not content.data or not content.data["image/png"] then
+		return false -- Non è un messaggio con immagine
+	end
+
+	local b64_data = content.data["image/png"]
+	local term_image_adapter = require("jove.term-image.adapter")
+	local sequence = term_image_adapter.render(b64_data, {})
+
+	if not sequence or sequence == "" then
+		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini inline o l'adattatore ha fallito.")
+		return false -- Lascia che il gestore di testo plain faccia da fallback
+	end
+
+	local display_id = (content.transient and content.transient.display_id) or nil
+	-- La sequenza è già una stringa completa, va inserita in un chunk.
+	local output_content = { { sequence, "Normal" } }
+	local output_type = "image_inline"
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return true
+	end
+
+	if is_update and display_id then
+		local updated = false
+		for i, output in ipairs(cell_info.outputs) do
+			if output.display_id == display_id then
+				cell_info.outputs[i].content = output_content
+				cell_info.outputs[i].type = output_type
+				updated = true
+				break
+			end
+		end
+		if not updated then -- Primo messaggio per questo display_id
+			state.add_output_to_cell(cell_id, {
+				type = output_type,
+				content = output_content,
+				display_id = display_id,
+			})
+		end
+		M.redraw_cell(cell_id)
+	else
+		-- Aggiunge come nuovo output
+		state.add_output_to_cell(cell_id, {
+			type = output_type,
+			content = output_content,
+			display_id = display_id,
+		})
+		M.redraw_cell(cell_id)
+	end
+	return true -- Gestito
+end
+
 --- NUOVO: Gestisce il rendering di un'immagine in un popup.
 -- Se l'immagine viene processata, restituisce true. Altrimenti, false.
 local function process_popup_image(cell_id, jupyter_msg, is_update)
@@ -148,9 +204,7 @@ function M.redraw_cell(cell_id)
 			for _, line_chunks in ipairs(output.content) do
 				table.insert(virt_lines, line_chunks)
 			end
-		elseif output.type == "image_iip" or output.type == "image_sixel" then
-			table.insert(virt_lines, { { output.content, "Normal" } })
-		elseif output.type == "image_popup" then
+		elseif output.type == "image_inline" or output.type == "image_popup" then
 			for _, line_chunks in ipairs(output.content) do
 				table.insert(virt_lines, line_chunks)
 			end
@@ -172,28 +226,6 @@ function M.redraw_cell(cell_id)
 		virt_lines_above = false,
 	})
 	table.insert(cell_info.output_marks, mark_id)
-end
-
---- Renderizza un'immagine usando il protocollo iTerm2 (IIP) come testo virtuale.
-function M.render_iip_image(cell_id, b64_data)
-	local term_image_adapter = require("jove.term-image.adapter")
-	local sequence = term_image_adapter.render(b64_data, {})
-	if not sequence or sequence == "" then
-		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini o l'adattatore ha fallito.")
-		return
-	end
-	state.add_output_to_cell(cell_id, { type = "image_iip", content = sequence, b64 = b64_data })
-	M.redraw_cell(cell_id)
-end
-
---- Renderizza una stringa Sixel come testo virtuale.
-function M.render_sixel_image(cell_id, sixel_string)
-	if not sixel_string or sixel_string == "" then
-		log.add(vim.log.levels.WARN, "[Jove] Ricevuta stringa Sixel vuota.")
-		return
-	end
-	state.add_output_to_cell(cell_id, { type = "image_sixel", content = sixel_string })
-	M.redraw_cell(cell_id)
 end
 
 --- Funzione unificata per elaborare e aggiungere/aggiornare output di tipo "rich text".
@@ -408,20 +440,41 @@ function M.render_error(cell_id, jupyter_msg)
 end
 
 function M.render_display_data(cell_id, jupyter_msg)
-	if require("jove").get_config().image_renderer == "popup" then
-		if process_popup_image(cell_id, jupyter_msg, false) then
-			return
+	local renderer = require("jove").get_config().image_renderer
+	local content = jupyter_msg.content
+
+	if content and content.data and content.data["image/png"] then
+		if renderer == "popup" then
+			if process_popup_image(cell_id, jupyter_msg, false) then
+				return -- Gestito
+			end
+		else -- Tratta qualsiasi altro valore (es. "sixel", "iip") come inline
+			if process_inline_image(cell_id, jupyter_msg, false) then
+				return -- Gestito
+			end
 		end
 	end
+
+	-- Fallback a testo se non è un'immagine o se il rendering dell'immagine fallisce
 	process_rich_output(cell_id, jupyter_msg, "display_data", false)
 end
 
 function M.render_update_display_data(cell_id, jupyter_msg)
-	if require("jove").get_config().image_renderer == "popup" then
-		if process_popup_image(cell_id, jupyter_msg, true) then
-			return
+	local renderer = require("jove").get_config().image_renderer
+	local content = jupyter_msg.content
+
+	if content and content.data and content.data["image/png"] then
+		if renderer == "popup" then
+			if process_popup_image(cell_id, jupyter_msg, true) then
+				return -- Gestito
+			end
+		else
+			if process_inline_image(cell_id, jupyter_msg, true) then
+				return -- Gestito
+			end
 		end
 	end
+
 	process_rich_output(cell_id, jupyter_msg, "display_data", true)
 end
 
@@ -609,10 +662,8 @@ function M.show_selectable_output(bufnr, cursor_row)
 				end
 				table.insert(lines, line_text)
 			end
-		elseif output.type == "image_iip" then
-			table.insert(lines, "[Immagine: IIP]")
-		elseif output.type == "image_sixel" then
-			table.insert(lines, "[Immagine: Sixel]")
+		elseif output.type == "image_inline" then
+			table.insert(lines, "[Immagine: inline]")
 		elseif output.type == "image_popup" then
 			for _, line_chunks in ipairs(output.content) do
 				local line_text = ""

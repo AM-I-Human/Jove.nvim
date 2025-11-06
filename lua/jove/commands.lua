@@ -365,16 +365,18 @@ function M.show_log_cmd()
 	log.show()
 end
 
---- Comando per renderizzare un'immagine inline.
-function M.render_image_cmd(args)
-	local image_path = args.fargs[1]
+--- NUOVO: Comando per testare il rendering di un'immagine inline (iTerm2/Wezterm).
+function M.test_image_cmd(args)
+	-- NOTA: Questo comando è per il debug. Non si integra con lo stato della cella,
+	-- quindi la pulizia automatica (`JoveClearOutput`) non funzionerà per questa immagine.
+	-- È necessario un `redraw!` manuale (es. CTRL-L) per pulirla.
+	local image_path = args.fargs[1] or "C:\\Users\\andre\\Pictures\\Andrea\\Small_SALOTTO-CULTURALE_MG_6719.jpg"
 	if not image_path or image_path == "" then
 		log.add(vim.log.levels.ERROR, "Percorso dell'immagine non specificato.")
 		return
 	end
 
 	-- Se il percorso non è assoluto, rendilo relativo alla directory di lavoro corrente.
-	-- Utilizziamo un controllo manuale per la compatibilità con versioni di Neovim più vecchie.
 	local is_abs
 	if vim.fn.has("win32") == 1 then
 		is_abs = string.match(image_path, "^[a-zA-Z]:[/\\]") or string.match(image_path, "^[/\\][/\\]")
@@ -389,31 +391,8 @@ function M.render_image_cmd(args)
 	local bufnr = vim.api.nvim_get_current_buf()
 	local lineno = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-indexed
 
-	image_renderer.render_image(bufnr, lineno, image_path)
-end
-
---- NUOVO: Comando per testare il rendering di un'immagine in un popup.
-function M.test_image_cmd(args)
-	local image_path = "C:\\Users\\andre\\Pictures\\Andrea\\Small_SALOTTO-CULTURALE_MG_6719.jpg"
-	if not image_path or image_path == "" then
-		log.add(vim.log.levels.ERROR, "Percorso dell'immagine non specificato.")
-		return
-	end
-
-	-- Se il percorso non è assoluto, rendilo relativo alla directory di lavoro corrente.
-	-- Utilizziamo un controllo manuale per la compatibilità con versioni di Neovim più vecchie.
-	local is_abs
-	if vim.fn.has("win32") == 1 then
-		is_abs = string.match(image_path, "^[a-zA-Z]:[/\\]") or string.match(image_path, "^[/\\][/\\]")
-	else
-		is_abs = string.match(image_path, "^/")
-	end
-	if not is_abs then
-		image_path = vim.fn.getcwd() .. "/" .. image_path
-	end
-
-	local image_renderer = require("jove.image_renderer")
-	image_renderer.render_image_popup(image_path)
+	-- Passiamo `nil` come cell_id perché questo è un comando di test manuale
+	image_renderer.render_image_inline(bufnr, lineno, image_path, nil)
 end
 
 --- Comando per rendere l'output di una cella selezionabile in una finestra flottante.
@@ -507,15 +486,10 @@ vim.api.nvim_create_user_command("JoveLog", M.show_log_cmd, {
 	desc = "Mostra i log di Jove in un nuovo buffer.",
 })
 
-vim.api.nvim_create_user_command("JoveRenderImage", M.render_image_cmd, {
-	nargs = 1,
-	complete = "file",
-	desc = "Renderizza un'immagine inline sulla riga corrente (protocollo iTerm2).",
-})
-
 vim.api.nvim_create_user_command("JoveTestImage", M.test_image_cmd, {
-	nargs = 0,
-	desc = "Renderizza un'immagine in una finestra popup (test).",
+	nargs = "?",
+	complete = "file",
+	desc = "Renderizza un'immagine inline per test (protocollo iTerm2).",
 })
 
 vim.api.nvim_create_user_command("JoveSelectOutput", M.select_output_cmd, {

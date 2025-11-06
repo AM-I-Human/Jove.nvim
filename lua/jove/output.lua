@@ -47,23 +47,48 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 		return false -- Non è un messaggio con immagine
 	end
 
-	local b64_data = content.data["image/png"]
-	local term_image_adapter = require("jove.term-image.adapter")
-	local sequence = term_image_adapter.render(b64_data, {})
-
-	if not sequence or sequence == "" then
-		log.add(vim.log.levels.WARN, "[Jove] Il terminale potrebbe non supportare le immagini inline o l'adattatore ha fallito.")
-		return false -- Lascia che il gestore di testo plain faccia da fallback
-	end
-
-	local display_id = (content.transient and content.transient.display_id) or nil
-	-- La sequenza è già una stringa completa, va inserita in un chunk.
-	local output_content = { { sequence, "Normal" } }
-	local output_type = "image_inline"
 	local cell_info = state.get_cell(cell_id)
 	if not cell_info then
 		return true
 	end
+
+	-- Decodifica e salva l'immagine in un file temporaneo
+	local b64_data = content.data["image/png"]
+	local decoded_data = b64_decode(b64_data)
+	if not decoded_data or decoded_data == "" then
+		log.add(vim.log.levels.ERROR, "Impossibile decodificare l'immagine base64 o i dati sono vuoti.")
+		return false -- Lascia che il gestore di testo plain faccia da fallback
+	end
+
+	local tmp_file = vim.fn.tempname() .. ".png"
+	-- `writefile` richiede una lista di stringhe.
+	local write_ok = pcall(vim.fn.writefile, { decoded_data }, tmp_file, "b")
+	if not write_ok then
+		log.add(vim.log.levels.ERROR, "Impossibile scrivere l'immagine nel file temporaneo: " .. tmp_file)
+		return false
+	end
+
+	-- Determina la riga su cui disegnare
+	local NS_ID = state.get_namespace_id()
+	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if not pos or #pos == 0 then
+		return true
+	end
+	local end_row = pos[1]
+
+	-- Pulisce l'immagine precedente se ne esiste una (per gli aggiornamenti)
+	if cell_info.image_output_info then
+		require("jove.image_renderer").clear_image_area(cell_info.image_output_info)
+		cell_info.image_output_info = nil
+	end
+
+	-- Chiama il renderer che bypassa la TUI
+	require("jove.image_renderer").render_image_inline(cell_info.bufnr, end_row, tmp_file, cell_id)
+
+	-- Salva solo un placeholder nel testo virtuale
+	local display_id = (content.transient and content.transient.display_id) or nil
+	local output_content = { { "[Immagine inline renderizzata nel terminale]", "Comment" } }
+	local output_type = "image_inline"
 
 	if is_update and display_id then
 		local updated = false
@@ -524,6 +549,12 @@ function M.clear_output_in_range(bufnr, start_row, end_row)
 	for _, cell_id in ipairs(cells_to_clear) do
 		local cell_info = state.get_cell(cell_id)
 		if cell_info then
+			-- NUOVO: Pulisce l'immagine dal terminale se esiste
+			if cell_info.image_output_info then
+				require("jove.image_renderer").clear_image_area(cell_info.image_output_info)
+				cell_info.image_output_info = nil -- Rimuovi le informazioni dopo la pulizia
+			end
+
 			state.clear_cell_outputs(cell_id)
 			M.redraw_cell(cell_id)
 

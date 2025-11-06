@@ -2,8 +2,6 @@ local M = {}
 
 local log = require("jove.log")
 
-local NS_ID = vim.api.nvim_create_namespace("jove_inline_image")
-
 --- Assicura che il percorso python del plugin sia aggiunto a sys.path in Python.
 local function setup_python_path()
 	-- Questa funzione assicura che il nostro modulo `image_renderer.py` sia importabile.
@@ -30,44 +28,73 @@ if path not in sys.path:
 	M._python_path_setup = true
 end
 
---- Renderizza un'immagine inline nel buffer specificato.
--- @param bufnr (integer) Il numero del buffer.
--- @param lineno (integer) La riga (0-indexed) su cui renderizzare l'immagine.
--- @param image_path (string) Il percorso del file immagine.
-function M.render_image(bufnr, lineno, image_path)
+--- Invia dati grezzi allo stdout del terminale, bypassando la TUI di Neovim.
+local function write_raw_to_terminal(data)
+	vim.api.nvim_chan_send(vim.v.stdout_chan, data)
+end
+
+--- Renderizza un'immagine inline inviando la sequenza di escape direttamente al terminale.
+function M.render_image_inline(bufnr, lineno, image_path, cell_id)
 	setup_python_path()
-
 	if not M._python_path_setup then
-		return -- Non continuare se il setup del percorso python è fallito
-	end
-
-	-- Prepara la chiamata alla funzione python in modo sicuro, escapando il percorso.
-	-- NOTA: Windows usa '\', che deve essere escapato in stringhe Lua e Python.
-	local safe_path = string.gsub(image_path, "\\", "\\\\")
-	local py_call = string.format('__import__("image_renderer").prepare_iterm_image(r"%s")', safe_path)
-
-	local b64_data = vim.fn.py3eval(py_call)
-
-	-- Controlla se Python ha restituito un errore.
-	if not b64_data or b64_data:match("^Error:") then
-		log.add(vim.log.levels.ERROR, "[Jove Image] " .. (b64_data or "Errore sconosciuto da Python."))
 		return
 	end
 
-	-- Costruisce la sequenza di escape iTerm2.
-	-- Usiamo `preserveAspectRatio=1` per evitare distorsioni.
-	local sequence = string.format("\x1b]1337;File=inline=1;preserveAspectRatio=1:%s\a", b64_data)
+	local safe_path = string.gsub(image_path, "\\", "\\\\")
+	local py_call = string.format('__import__("image_renderer").prepare_iterm_image(r"%s")', safe_path)
 
-	-- Pulisce eventuali immagini precedenti sulla stessa riga.
-	vim.api.nvim_buf_clear_namespace(bufnr, NS_ID, lineno, lineno + 1)
+	local json_result = vim.fn.py3eval(py_call)
+	if not json_result then
+		log.add(vim.log.levels.ERROR, "[Jove Image] Python non ha restituito dati.")
+		return
+	end
 
-	-- Inserisce la sequenza come testo virtuale SOTTO la riga specificata.
-	-- Anche se richiesto `virt_text`, `virt_lines` offre un'esperienza utente migliore
-	-- non sovrapponendosi al codice, ed è tecnicamente corretto.
-	vim.api.nvim_buf_set_extmark(bufnr, NS_ID, lineno, -1, {
-		virt_lines = { { { sequence, "Normal" } } },
-		virt_lines_above = false,
-	})
+	local ok, image_data = pcall(vim.json.decode, json_result)
+	if not ok or (image_data and image_data.error) then
+		local err_msg = (image_data and image_data.error) or json_result
+		log.add(vim.log.levels.ERROR, "[Jove Image] Errore da Python: " .. err_msg)
+		return
+	end
+	if not image_data or not image_data.b64 then
+		log.add(vim.log.levels.ERROR, "[Jove Image] Dati immagine base64 mancanti.")
+		return
+	end
+
+	-- Salva i dati per la pulizia
+	local cell_info = cell_id and require("jove.state").get_cell(cell_id)
+	if cell_info then
+		cell_info.image_output_info = {
+			line = lineno + 1, -- 1-indexed
+			width = image_data.width,
+			height = image_data.height,
+		}
+	end
+
+	-- Sposta il cursore del terminale, disegna l'immagine e ridisegna la UI di Neovim
+	local move_cursor_cmd = string.format("\x1b[%d;1H", lineno + 2) -- ANSI CUP (1-indexed), +2 per andare sotto la linea della cella
+	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_data.b64)
+
+	write_raw_to_terminal(move_cursor_cmd .. sequence)
+	vim.cmd("redraw!") -- Sincronizza la UI di Neovim
+end
+
+--- Pulisce l'area dove era stata disegnata un'immagine.
+function M.clear_image_area(image_info)
+	if not image_info then
+		return
+	end
+
+	local r, w, h = image_info.line, image_info.width, image_info.height
+	local space_line = string.rep(" ", w)
+	local clear_packet = ""
+
+	for i = 0, h - 1 do
+		local move_cmd = string.format("\x1b[%d;1H", r + 1 + i)
+		clear_packet = clear_packet .. move_cmd .. space_line
+	end
+
+	write_raw_to_terminal(clear_packet)
+	vim.cmd("redraw!")
 end
 
 --- NUOVO: Renderizza un'immagine in una finestra popup Tcl/Tk.

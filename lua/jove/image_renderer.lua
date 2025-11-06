@@ -30,7 +30,7 @@ end
 
 --- Invia dati grezzi allo stdout del terminale, bypassando la TUI di Neovim.
 local function write_raw_to_terminal(data)
-	vim.api.nvim_chan_send(vim.v.stdout_chan, data)
+	vim.api.nvim_chan_send(1, data)
 end
 
 --- Renderizza un'immagine inline inviando la sequenza di escape direttamente al terminale.

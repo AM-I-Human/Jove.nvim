@@ -48,15 +48,15 @@ local function write_raw_to_terminal(data)
 	end)
 end
 
---- Renderizza un'immagine inline inviando la sequenza di escape direttamente al terminale.
-function M.render_image_inline(bufnr, lineno, image_path, cell_id)
+function M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
 	setup_python_path()
 	if not M._python_path_setup then
 		return
 	end
 
-	local safe_path = string.gsub(image_path, "\\", "\\\\")
-	local py_call = string.format('__import__("image_renderer").prepare_iterm_image(r"%s")', safe_path)
+	-- NOTA: `py3eval` ha un limite sulla lunghezza dell'input. Se le immagini sono
+	-- molto grandi, questo potrebbe fallire. Per ora, procediamo così.
+	local py_call = string.format('__import__("image_renderer").prepare_iterm_image_from_b64("%s")', b64_data)
 
 	local json_result = vim.fn.py3eval(py_call)
 	if not json_result then
@@ -91,6 +91,20 @@ function M.render_image_inline(bufnr, lineno, image_path, cell_id)
 
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 	vim.cmd("redraw!") -- Sincronizza la UI di Neovim
+end
+
+--- Renderizza un'immagine da un file (per JoveTestImage).
+function M.render_image_inline(bufnr, lineno, image_path, cell_id)
+	-- Questa funzione ora legge il file e delega a `render_image_from_b64`.
+	local file = io.open(image_path, "rb")
+	if not file then
+		log.add(vim.log.levels.ERROR, "Impossibile aprire il file immagine: " .. image_path)
+		return
+	end
+	local content = file:read("*a")
+	file:close()
+	local b64_data = vim.fn.base64encode(content)
+	M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
 end
 
 --- Pulisce l'area dove era stata disegnata un'immagine.

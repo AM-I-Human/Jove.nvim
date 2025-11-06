@@ -216,6 +216,23 @@ function M.handle_py_client_message(kernel_name, json_line)
 				handler(k_info.current_execution_cell_id, jupyter_msg)
 			end
 		end
+	elseif msg_type == "image_iip" then
+		local b64_data = data.payload
+		if b64_data then
+			local k_info = state.get_kernel(kernel_name)
+			if k_info and k_info.current_execution_cell_id then
+				-- Costruisci un messaggio fittizio di tipo display_data per riutilizzare la logica esistente
+				local fake_jupyter_msg = {
+					content = {
+						data = {
+							["image/png"] = b64_data,
+						},
+					},
+				}
+				-- Chiama il gestore di rendering come se fosse un normale messaggio jupyter
+				output.render_display_data(k_info.current_execution_cell_id, fake_jupyter_msg)
+			end
+		end
 	end
 end
 

@@ -30,7 +30,22 @@ end
 
 --- Invia dati grezzi allo stdout del terminale, bypassando la TUI di Neovim.
 local function write_raw_to_terminal(data)
-	vim.api.nvim_chan_send(1, data)
+	-- Usa vim.loop (libuv) per scrivere direttamente sul TTY di stdout (fd=1).
+	-- Questo bypassa l'interprete RPC di Neovim, che causa errori come
+	-- "Can't send raw data to rpc channel".
+	local stdout = vim.loop.new_tty(1, false)
+	if not stdout then
+		log.add(vim.log.levels.ERROR, "[Jove Image] Impossibile aprire TTY per stdout.")
+		return
+	end
+
+	stdout:write(data, function(err)
+		if err then
+			log.add(vim.log.levels.ERROR, "[Jove Image] Errore di scrittura su stdout: " .. err)
+		end
+		-- È importante chiudere l'handle dopo la scrittura asincrona.
+		stdout:close()
+	end)
 end
 
 --- Renderizza un'immagine inline inviando la sequenza di escape direttamente al terminale.

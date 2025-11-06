@@ -61,6 +61,8 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 	end
 
 	local tmp_file = vim.fn.tempname() .. ".png"
+	-- Assicura che la directory per il file temporaneo esista.
+	vim.fn.mkdir(vim.fn.fnamemodify(tmp_file, ":h"), "p")
 	-- `writefile` richiede una lista di stringhe.
 	local write_ok = pcall(vim.fn.writefile, { decoded_data }, tmp_file, "b")
 	if not write_ok then
@@ -136,6 +138,8 @@ local function process_popup_image(cell_id, jupyter_msg, is_update)
 	end
 
 	local tmp_file = vim.fn.tempname() .. ".png"
+	-- Assicura che la directory per il file temporaneo esista.
+	vim.fn.mkdir(vim.fn.fnamemodify(tmp_file, ":h"), "p")
 	-- `writefile` richiede una lista di stringhe.
 	local write_ok = pcall(vim.fn.writefile, { decoded_data }, tmp_file, "b")
 	if not write_ok then

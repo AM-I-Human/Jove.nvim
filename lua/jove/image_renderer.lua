@@ -2,6 +2,37 @@ local M = {}
 
 local log = require("jove.log")
 
+-- Fallback in puro Lua per la codifica base64.
+local b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+local function lua_b64_encode(data)
+	return ((data:gsub('.', function(x)
+		local r, b = '', x:byte()
+		for i = 8, 1, -1 do
+			r = r .. (b % 2 ^ i - b % 2 ^ (i - 1) > 0 and '1' or '0')
+		end
+		return r
+	end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+		if #x < 6 then
+			return ''
+		end
+		local c = 0
+		for i = 1, 6 do
+			c = c + (x:sub(i, i) == '1' and 2 ^ (6 - i) or 0)
+		end
+		return b64_chars:sub(c + 1, c + 1)
+	end) .. ({ '', '==', '=' })[#data % 3 + 1])
+end
+
+--- Tenta di usare la funzione nativa di Neovim, altrimenti usa il fallback.
+local function b64_encode(data)
+	local ok, encoded = pcall(vim.fn.base64encode, data)
+	if ok and encoded then
+		return encoded
+	end
+	log.add(vim.log.levels.WARN, "[Jove] Funzione nativa 'base64encode' fallita o non trovata. Uso il fallback in Lua.")
+	return lua_b64_encode(data)
+end
+
 --- Assicura che il percorso python del plugin sia aggiunto a sys.path in Python.
 local function setup_python_path()
 	-- Questa funzione assicura che il nostro modulo `image_renderer.py` sia importabile.
@@ -103,7 +134,7 @@ function M.render_image_inline(bufnr, lineno, image_path, cell_id)
 	end
 	local content = file:read("*a")
 	file:close()
-	local b64_data = vim.fn.base64encode(content)
+	local b64_data = b64_encode(content)
 	M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
 end
 

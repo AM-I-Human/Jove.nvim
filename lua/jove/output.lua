@@ -52,27 +52,30 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 		return true
 	end
 
-	local b64_data = content.data["image/png"]
-
-	local NS_ID = state.get_namespace_id()
-	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
-	if not pos or #pos == 0 then
-		return true
-	end
-	local end_row = pos[1]
-
+	-- Pulisce l'immagine precedente se ne esiste una
 	if cell_info.image_output_info then
 		require("jove.image_renderer").clear_image_area(cell_info.image_output_info)
 		cell_info.image_output_info = nil
 	end
 
-	-- Chiama direttamente il renderer con i dati base64
-	require("jove.image_renderer").render_image_from_b64(cell_info.bufnr, end_row, b64_data, cell_id)
+	local b64_data = content.data["image/png"]
+	local image_renderer = require("jove.image_renderer")
+	local image_props, err = image_renderer.get_inline_image_properties(b64_data)
 
-	-- Salva il placeholder
-	local display_id = (content.transient and content.transient.display_id) or nil
-	local output_content = { { { "[Immagine inline renderizzata nel terminale]", "Comment" } } }
+	if err then
+		log.add(vim.log.levels.WARN, "Rendering inline dell'immagine fallito. Tento il fallback al popup. Errore: " .. err)
+		return process_popup_image(cell_id, jupyter_msg, is_update)
+	end
+
+	-- Crea linee virtuali vuote per fare spazio all'immagine
+	local virt_lines = {}
+	for _ = 1, image_props.height do
+		table.insert(virt_lines, { { "", "Normal" } }) -- Linea vuota
+	end
+
+	local output_content = virt_lines
 	local output_type = "image_inline"
+	local display_id = (content.transient and content.transient.display_id) or nil
 
 	if is_update and display_id then
 		local updated = false
@@ -85,20 +88,22 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 			end
 		end
 		if not updated then
-			state.add_output_to_cell(cell_id, {
-				type = output_type,
-				content = output_content,
-				display_id = display_id,
-			})
+			state.add_output_to_cell(cell_id, { type = output_type, content = output_content, display_id = display_id })
 		end
 	else
-		state.add_output_to_cell(cell_id, {
-			type = output_type,
-			content = output_content,
-			display_id = display_id,
-		})
+		state.add_output_to_cell(cell_id, { type = output_type, content = output_content, display_id = display_id })
 	end
+
 	M.redraw_cell(cell_id)
+
+	-- Ora che lo spazio è stato creato, disegna l'immagine
+	local NS_ID = state.get_namespace_id()
+	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+	if pos and #pos > 0 then
+		local end_row = pos[1]
+		image_renderer.draw_and_register_inline_image(cell_info.bufnr, end_row, image_props, cell_id)
+	end
+
 	return true
 end
 

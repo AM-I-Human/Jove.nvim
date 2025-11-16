@@ -79,49 +79,57 @@ local function write_raw_to_terminal(data)
 	end)
 end
 
-function M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
+--- Ottiene le proprietà dell'immagine (dimensioni, dati b64) da Python.
+-- @param b64_data (string) Dati dell'immagine codificati in base64.
+-- @return (table | nil) Una tabella con `width`, `height`, `b64` o `nil` in caso di errore.
+function M.get_inline_image_properties(b64_data)
 	setup_python_path()
 	if not M._python_path_setup then
-		return
+		return nil, "Python path non configurato."
 	end
 
-	-- NOTA: `py3eval` ha un limite sulla lunghezza dell'input. Se le immagini sono
-	-- molto grandi, questo potrebbe fallire. Per ora, procediamo così.
 	local py_call = string.format('__import__("image_renderer").prepare_iterm_image_from_b64("%s")', b64_data)
-
 	local json_result = vim.fn.py3eval(py_call)
 	if not json_result then
-		log.add(vim.log.levels.ERROR, "[Jove Image] Python non ha restituito dati.")
-		return
+		return nil, "Python non ha restituito dati."
 	end
 
 	local ok, image_data = pcall(vim.json.decode, json_result)
 	if not ok or (image_data and image_data.error) then
-		local err_msg = (image_data and image_data.error) or json_result
-		log.add(vim.log.levels.ERROR, "[Jove Image] Errore da Python: " .. err_msg)
-		return
+		local err_msg = (image_data and image_data.error) or tostring(json_result)
+		return nil, "Errore da Python: " .. err_msg
 	end
-	if not image_data or not image_data.b64 then
-		log.add(vim.log.levels.ERROR, "[Jove Image] Dati immagine base64 mancanti.")
-		return
+	if not image_data or not image_data.b64 or not image_data.height or not image_data.width then
+		return nil, "Dati immagine incompleti da Python."
 	end
 
-	-- Salva i dati per la pulizia
+	return image_data
+end
+
+--- Disegna un'immagine nel terminale e registra le sue informazioni per la pulizia.
+function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 	local cell_info = cell_id and require("jove.state").get_cell(cell_id)
 	if cell_info then
 		cell_info.image_output_info = {
-			line = lineno + 1, -- 1-indexed
-			width = image_data.width,
-			height = image_data.height,
+			line = lineno + 1, -- La pulizia è 1-indexed
+			width = image_props.width,
+			height = image_props.height,
 		}
 	end
 
-	-- Sposta il cursore del terminale, disegna l'immagine e ridisegna la UI di Neovim
-	local move_cursor_cmd = string.format("\x1b[%d;1H", lineno + 2) -- ANSI CUP (1-indexed), +2 per andare sotto la linea della cella
-	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_data.b64)
-
+	local move_cursor_cmd = string.format("\x1b[%d;1H", lineno + 2) -- +1 per 1-indexing, +1 per andare sotto la linea
+	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
-	vim.cmd("redraw!") -- Sincronizza la UI di Neovim
+	vim.cmd("redraw!")
+end
+
+function M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
+	local image_props, err = M.get_inline_image_properties(b64_data)
+	if err then
+		log.add(vim.log.levels.ERROR, "[Jove TestImage] " .. err)
+		return
+	end
+	M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 end
 
 --- Renderizza un'immagine da un file (per JoveTestImage).

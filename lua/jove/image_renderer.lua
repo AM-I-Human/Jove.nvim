@@ -157,23 +157,20 @@ function M.clear_image_area(image_info)
 	vim.cmd("redraw!")
 end
 
---- NUOVO: Renderizza un'immagine in una finestra popup Tcl/Tk.
--- @param image_path (string) Il percorso del file immagine.
-function M.render_image_popup(image_path)
+--- NUOVO: Renderizza un'immagine da dati B64 in una finestra popup Tcl/Tk.
+-- @param b64_data (string) I dati dell'immagine codificati in base64.
+function M.render_image_popup_from_b64(b64_data)
 	local popup_script = vim.g.jove_plugin_root .. "/python/popup_renderer.py"
-	-- Usa l'eseguibile Python di Neovim per il client
-	local executable = vim.g.python3_host_prog
-		or vim.g.jove_default_python
-		or "python"
+	local executable = vim.g.python3_host_prog or vim.g.jove_default_python or "python"
 
 	local cmd = {
 		executable,
 		"-u",
 		popup_script,
-		image_path,
 	}
 
-	vim.fn.jobstart(cmd, {
+	local job_id = vim.fn.jobstart(cmd, {
+		stdin = "pipe",
 		on_stderr = function(_, data, _)
 			if data then
 				require("jove.log").add(
@@ -183,6 +180,13 @@ function M.render_image_popup(image_path)
 			end
 		end,
 	})
+
+	if job_id and job_id > 0 then
+		vim.fn.chansend(job_id, b64_data)
+		vim.fn.chanclose(job_id, "stdin") -- Chiude lo stdin dopo aver inviato i dati
+	else
+		log.add(vim.log.levels.ERROR, "Impossibile avviare il processo popup_renderer.py.")
+	end
 end
 
 return M

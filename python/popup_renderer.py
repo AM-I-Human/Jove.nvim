@@ -1,20 +1,23 @@
 import sys
 import tkinter as tk
 from PIL import Image, ImageTk
+import base64
+import io
 
-def show_image_popup(image_path):
+
+def show_image_popup(image_bytes):
     """
-    Displays an image in a Tkinter popup window, creating a thumbnail if it's too large.
+    Displays an image from bytes in a Tkinter popup window, creating a thumbnail if it's too large.
     """
     try:
         root = tk.Tk()
-        root.title(f"Jove Image Preview: {image_path}")
+        root.title("Jove Image Preview")
 
         # Get screen size to calculate max image dimensions (e.g., 80% of screen)
         max_width = int(root.winfo_screenwidth() * 0.8)
         max_height = int(root.winfo_screenheight() * 0.8)
 
-        pil_image = Image.open(image_path)
+        pil_image = Image.open(io.BytesIO(image_bytes))
 
         # Create a thumbnail to fit the screen, preserving aspect ratio.
         # This modifies the image in-place.
@@ -41,9 +44,17 @@ def show_image_popup(image_path):
         print(f"Error displaying image: {e}", file=sys.stderr)
         sys.exit(1)
 
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        show_image_popup(sys.argv[1])
-    else:
-        print("Usage: python popup_renderer.py <image_path>", file=sys.stderr)
+    try:
+        # Read base64 data from stdin, decode it, and display the image.
+        b64_data = sys.stdin.read()
+        if not b64_data:
+            raise ValueError("No data received from stdin.")
+
+        image_bytes = base64.b64decode(b64_data)
+        show_image_popup(image_bytes)
+
+    except Exception as e:
+        print(f"Error processing image from stdin: {e}", file=sys.stderr)
         sys.exit(1)

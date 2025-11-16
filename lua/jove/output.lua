@@ -111,23 +111,12 @@ local function process_popup_image(cell_id, jupyter_msg, is_update)
 	end
 
 	local b64_data = content.data["image/png"]
-	local decoded_data = b64_decode(b64_data)
-	if not decoded_data or decoded_data == "" then
-		log.add(vim.log.levels.ERROR, "Impossibile decodificare l'immagine base64 o i dati sono vuoti.")
-		return false -- Lascia che il gestore di testo plain faccia da fallback
-	end
-
-	local tmp_file = vim.fn.tempname() .. ".png"
-	-- Assicura che la directory per il file temporaneo esista.
-	vim.fn.mkdir(vim.fn.fnamemodify(tmp_file, ":h"), "p")
-	-- `writefile` richiede una lista di stringhe.
-	local write_ok = pcall(vim.fn.writefile, { decoded_data }, tmp_file, "b")
-	if not write_ok then
-		log.add(vim.log.levels.ERROR, "Impossibile scrivere l'immagine nel file temporaneo: " .. tmp_file)
+	if not b64_data or b64_data == "" then
+		log.add(vim.log.levels.ERROR, "Dati immagine base64 vuoti.")
 		return false
 	end
 
-	require("jove.image_renderer").render_image_popup(tmp_file)
+	require("jove.image_renderer").render_image_popup_from_b64(b64_data)
 
 	local display_id = (content.transient and content.transient.display_id) or nil
 	local output_content = { { "[Immagine visualizzata in popup]", "Comment" } }

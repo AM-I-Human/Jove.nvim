@@ -30,7 +30,7 @@ local python_setup_code = table.concat({
 }, "\n")
 
 local defaults = {
-	image_renderer = "popup",
+	image_renderer = "iip", -- Renderer per le immagini: "popup" o "iip" (per iTerm2/Wezterm)
 	image_width = 80,
 	kernels = {
 		python = {

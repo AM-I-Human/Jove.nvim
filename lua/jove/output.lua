@@ -71,7 +71,7 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 
 	-- Salva il placeholder
 	local display_id = (content.transient and content.transient.display_id) or nil
-	local output_content = { { "[Immagine inline renderizzata nel terminale]", "Comment" } }
+	local output_content = { { { "[Immagine inline renderizzata nel terminale]", "Comment" } } }
 	local output_type = "image_inline"
 
 	if is_update and display_id then
@@ -119,7 +119,7 @@ local function process_popup_image(cell_id, jupyter_msg, is_update)
 	require("jove.image_renderer").render_image_popup_from_b64(b64_data)
 
 	local display_id = (content.transient and content.transient.display_id) or nil
-	local output_content = { { "[Immagine visualizzata in popup]", "Comment" } }
+	local output_content = { { { "[Immagine visualizzata in popup]", "Comment" } } }
 	local output_type = "image_popup"
 	local cell_info = state.get_cell(cell_id)
 	if not cell_info then

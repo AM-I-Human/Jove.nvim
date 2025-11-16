@@ -96,13 +96,17 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 
 	M.redraw_cell(cell_id)
 
-	-- Ora che lo spazio è stato creato, disegna l'immagine
-	local NS_ID = state.get_namespace_id()
-	local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
-	if pos and #pos > 0 then
-		local end_row = pos[1]
-		image_renderer.draw_and_register_inline_image(cell_info.bufnr, end_row, image_props, cell_id)
-	end
+	-- Ora che lo spazio è stato creato, disegna l'immagine.
+	-- Usiamo vim.schedule per assicurarci che il ridisegno che crea lo spazio
+	-- avvenga prima del disegno dell'immagine, risolvendo una race condition.
+	vim.schedule(function()
+		local NS_ID = state.get_namespace_id()
+		local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+		if pos and #pos > 0 then
+			local end_row = pos[1]
+			image_renderer.draw_and_register_inline_image(cell_info.bufnr, end_row, image_props, cell_id)
+		end
+	end)
 
 	return true
 end

@@ -120,7 +120,6 @@ function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 	local move_cursor_cmd = string.format("\x1b[%d;1H", lineno + 2) -- +1 per 1-indexing, +1 per andare sotto la linea
 	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
-	vim.cmd("redraw!")
 end
 
 function M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
@@ -162,7 +161,6 @@ function M.clear_image_area(image_info)
 	end
 
 	write_raw_to_terminal(clear_packet)
-	vim.cmd("redraw!")
 end
 
 --- NUOVO: Renderizza un'immagine da dati B64 in una finestra popup Tcl/Tk.

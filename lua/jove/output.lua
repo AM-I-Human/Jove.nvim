@@ -124,8 +124,9 @@ local function process_terminal_popup_image(cell_id, jupyter_msg, is_update)
 		return false
 	end
 
-	local display_id = (content.transient and content.transient.display_id) or nil
-	local output_content = { { { "[Immagine: usa JoveSelectOutput per vederla]", "Comment" } } }
+	local display_id = (content.transient and content.transient.display_id) or "N/A"
+	local placeholder = string.format("[Immagine %s: usa JoveSelectOutput per vederla]", display_id)
+	local output_content = { { { placeholder, "Comment" } } }
 	local output_type = "terminal_popup"
 	local cell_info = state.get_cell(cell_id)
 	if not cell_info then
@@ -719,23 +720,35 @@ function M.show_selectable_output(bufnr, cursor_row)
 		return
 	end
 
-	-- Controlla se c'è un'immagine "terminal_popup" da mostrare
+	local image_renderer = require("jove.image_renderer")
+	local lines = {}
+	local render_tasks = {}
+
 	for _, output in ipairs(cell_info.outputs) do
 		if output.type == "terminal_popup" and output.b64_data then
-			require("jove.image_renderer").render_image_popup_from_b64(output.b64_data)
-			return -- Immagine mostrata, fine della funzione
-		end
-	end
-
-	-- Se non ci sono immagini, estrae il contenuto testuale da tutti gli output
-	local lines = {}
-	for _, output in ipairs(cell_info.outputs) do
-		if output.type == "stream"
+			local image_props, err = image_renderer.get_inline_image_properties(output.b64_data)
+			if image_props then
+				local image_start_line = #lines
+				for _ = 1, image_props.height do
+					table.insert(lines, "") -- Aggiungi linee vuote per fare spazio
+				end
+				table.insert(render_tasks, { props = image_props, lineno = image_start_line })
+			else
+				log.add(vim.log.levels.WARN, "Impossibile renderizzare l'immagine nel popup: " .. (err or "errore sconosciuto"))
+				-- Fallback al testo del placeholder
+				for _, line_chunks in ipairs(output.content) do
+					local line_text = ""
+					for _, chunk in ipairs(line_chunks) do
+						line_text = line_text .. chunk[1]
+					end
+					table.insert(lines, line_text)
+				end
+			end
+		elseif output.type == "stream"
 			or output.type == "execute_result"
 			or output.type == "display_data"
 			or output.type == "error"
 			or output.type == "image_popup"
-			or output.type == "terminal_popup" -- Mostra il placeholder se non c'è b64_data
 		then
 			for _, line_chunks in ipairs(output.content) do
 				local line_text = ""
@@ -763,7 +776,7 @@ function M.show_selectable_output(bufnr, cursor_row)
 	local width = math.floor(vim.o.columns * 0.7)
 	local height = math.min(#lines, math.floor(vim.o.lines * 0.5))
 
-	vim.api.nvim_open_win(buf, true, {
+	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "cursor",
 		width = width,
 		height = height,
@@ -774,8 +787,20 @@ function M.show_selectable_output(bufnr, cursor_row)
 		title = "Jove Output (press 'q' to close)",
 		title_pos = "center",
 	})
+
 	-- Mappa 'q' per chiudere
 	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<cr>", { noremap = true, silent = true })
+
+	-- Esegui i task di rendering dopo che la finestra è stata creata
+	if #render_tasks > 0 then
+		vim.schedule(function()
+			for _, task in ipairs(render_tasks) do
+				-- Passiamo `nil` come cell_id perché non vogliamo registrare questa
+				-- immagine temporanea per la pulizia.
+				image_renderer.draw_and_register_inline_image(buf, task.lineno, task.props, nil)
+			end
+		end)
+	end
 end
 
 -- Mappa per i gestori dei messaggi iopub

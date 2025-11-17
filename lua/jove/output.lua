@@ -111,6 +111,53 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 	return true
 end
 
+--- NUOVO: Gestisce l'output di un'immagine come placeholder riapribile.
+local function process_terminal_popup_image(cell_id, jupyter_msg, is_update)
+	local content = jupyter_msg.content
+	if not content or not content.data or not content.data["image/png"] then
+		return false
+	end
+
+	local b64_data = content.data["image/png"]
+	if not b64_data or b64_data == "" then
+		log.add(vim.log.levels.ERROR, "Dati immagine base64 vuoti.")
+		return false
+	end
+
+	local display_id = (content.transient and content.transient.display_id) or nil
+	local output_content = { { { "[Immagine: usa JoveSelectOutput per vederla]", "Comment" } } }
+	local output_type = "terminal_popup"
+	local cell_info = state.get_cell(cell_id)
+	if not cell_info then
+		return true
+	end
+
+	local new_output = {
+		type = output_type,
+		content = output_content,
+		display_id = display_id,
+		b64_data = b64_data, -- Salva i dati per la visualizzazione successiva
+	}
+
+	if is_update and display_id then
+		local updated = false
+		for i, output in ipairs(cell_info.outputs) do
+			if output.display_id == display_id then
+				cell_info.outputs[i] = new_output
+				updated = true
+				break
+			end
+		end
+		if not updated then
+			state.add_output_to_cell(cell_id, new_output)
+		end
+	else
+		state.add_output_to_cell(cell_id, new_output)
+	end
+	M.redraw_cell(cell_id)
+	return true
+end
+
 --- NUOVO: Gestisce il rendering di un'immagine in un popup.
 -- Se l'immagine viene processata, restituisce true. Altrimenti, false.
 local function process_popup_image(cell_id, jupyter_msg, is_update)
@@ -211,7 +258,7 @@ function M.redraw_cell(cell_id)
 			for _, line_chunks in ipairs(output.content) do
 				table.insert(virt_lines, line_chunks)
 			end
-		elseif output.type == "image_inline" or output.type == "image_popup" then
+		elseif output.type == "image_inline" or output.type == "image_popup" or output.type == "terminal_popup" then
 			for _, line_chunks in ipairs(output.content) do
 				table.insert(virt_lines, line_chunks)
 			end
@@ -455,6 +502,10 @@ function M.render_display_data(cell_id, jupyter_msg)
 			if process_popup_image(cell_id, jupyter_msg, false) then
 				return -- Gestito
 			end
+		elseif renderer == "terminal_popup" then
+			if process_terminal_popup_image(cell_id, jupyter_msg, false) then
+				return -- Gestito
+			end
 		else -- Tratta qualsiasi altro valore (es. "sixel", "iip") come inline
 			if process_inline_image(cell_id, jupyter_msg, false) then
 				return -- Gestito
@@ -473,6 +524,10 @@ function M.render_update_display_data(cell_id, jupyter_msg)
 	if content and content.data and content.data["image/png"] then
 		if renderer == "popup" then
 			if process_popup_image(cell_id, jupyter_msg, true) then
+				return -- Gestito
+			end
+		elseif renderer == "terminal_popup" then
+			if process_terminal_popup_image(cell_id, jupyter_msg, true) then
 				return -- Gestito
 			end
 		else
@@ -664,10 +719,24 @@ function M.show_selectable_output(bufnr, cursor_row)
 		return
 	end
 
-	-- Estrae il contenuto testuale da tutti gli output della cella
+	-- Controlla se c'è un'immagine "terminal_popup" da mostrare
+	for _, output in ipairs(cell_info.outputs) do
+		if output.type == "terminal_popup" and output.b64_data then
+			require("jove.image_renderer").render_image_popup_from_b64(output.b64_data)
+			return -- Immagine mostrata, fine della funzione
+		end
+	end
+
+	-- Se non ci sono immagini, estrae il contenuto testuale da tutti gli output
 	local lines = {}
 	for _, output in ipairs(cell_info.outputs) do
-		if output.type == "stream" or output.type == "execute_result" or output.type == "display_data" or output.type == "error" then
+		if output.type == "stream"
+			or output.type == "execute_result"
+			or output.type == "display_data"
+			or output.type == "error"
+			or output.type == "image_popup"
+			or output.type == "terminal_popup" -- Mostra il placeholder se non c'è b64_data
+		then
 			for _, line_chunks in ipairs(output.content) do
 				local line_text = ""
 				for _, chunk in ipairs(line_chunks) do
@@ -677,14 +746,6 @@ function M.show_selectable_output(bufnr, cursor_row)
 			end
 		elseif output.type == "image_inline" then
 			table.insert(lines, "[Immagine: inline]")
-		elseif output.type == "image_popup" then
-			for _, line_chunks in ipairs(output.content) do
-				local line_text = ""
-				for _, chunk in ipairs(line_chunks) do
-					line_text = line_text .. chunk[1]
-				end
-				table.insert(lines, line_text)
-			end
 		end
 	end
 

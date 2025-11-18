@@ -1,6 +1,7 @@
 -- lua/jove/output.lua
 -- Modulo di rendering per gli output delle celle. È stateless.
 local M = {}
+local image_id_counter = 0
 local log = require("jove.log")
 local state = require("jove.state")
 local ansi = require("jove.ansi")
@@ -124,7 +125,11 @@ local function process_terminal_popup_image(cell_id, jupyter_msg, is_update)
 		return false
 	end
 
-	local display_id = (content.transient and content.transient.display_id) or "N/A"
+	local display_id = (content.transient and content.transient.display_id) or content.display_id
+	if not display_id then
+		image_id_counter = image_id_counter + 1
+		display_id = "jove-img-" .. image_id_counter
+	end
 	local placeholder = string.format("[Immagine %s: usa JoveSelectOutput per vederla]", display_id)
 	local output_content = { { { placeholder, "Comment" } } }
 	local output_type = "terminal_popup"
@@ -734,8 +739,7 @@ function M.show_selectable_output(bufnr, cursor_row)
 				end
 				table.insert(render_tasks, { props = image_props, lineno = image_start_line })
 			else
-				log.add(vim.log.levels.WARN, "Impossibile renderizzare l'immagine nel popup: " .. (err or "errore sconosciuto"))
-				-- Fallback al testo del placeholder
+				log.add(vim.log.levels.WARN, "Impossibile renderizzare l'immagine nel popup: " .. (err or "sconosciuto"))
 				for _, line_chunks in ipairs(output.content) do
 					local line_text = ""
 					for _, chunk in ipairs(line_chunks) do
@@ -767,15 +771,12 @@ function M.show_selectable_output(bufnr, cursor_row)
 		return
 	end
 
-	-- Crea e mostra la finestra flottante
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "hide"
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-
 	local width = math.floor(vim.o.columns * 0.7)
 	local height = math.min(#lines, math.floor(vim.o.lines * 0.5))
-
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "cursor",
 		width = width,
@@ -787,19 +788,34 @@ function M.show_selectable_output(bufnr, cursor_row)
 		title = "Jove Output (press 'q' to close)",
 		title_pos = "center",
 	})
-
-	-- Mappa 'q' per chiudere
 	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<cr>", { noremap = true, silent = true })
 
-	-- Esegui i task di rendering dopo che la finestra è stata creata
 	if #render_tasks > 0 then
+		local win_config = vim.api.nvim_win_get_config(win)
+		local cleanup_tasks = {}
+
 		vim.schedule(function()
 			for _, task in ipairs(render_tasks) do
-				-- Passiamo `nil` come cell_id perché non vogliamo registrare questa
-				-- immagine temporanea per la pulizia.
-				image_renderer.draw_and_register_inline_image(buf, task.lineno, task.props, nil)
+				local abs_row = win_config.row + task.lineno
+				image_renderer.draw_inline_image_at_pos(abs_row, win_config.col, task.props)
+				table.insert(cleanup_tasks, {
+					line = abs_row + 1, -- La pulizia è 1-indexed
+					width = task.props.width,
+					height = task.props.height,
+				})
 			end
 		end)
+
+		vim.api.nvim_create_autocmd("WinClosed", {
+			pattern = tostring(win),
+			once = true,
+			callback = function(ctx)
+				for _, task in ipairs(cleanup_tasks) do
+					image_renderer.clear_image_area(task)
+				end
+				vim.api.nvim_del_autocmd(ctx.id) -- Pulisce l'autocomando
+			end,
+		})
 	end
 end
 

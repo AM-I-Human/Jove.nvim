@@ -122,6 +122,17 @@ function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 end
 
+--- Disegna un'immagine a coordinate assolute dello schermo (per finestre flottanti).
+function M.draw_inline_image_at_pos(screen_row, screen_col, image_props)
+	-- +1 per il bordo della finestra, +1 perché le coordinate ANSI sono 1-indexed.
+	local target_col = screen_col + 1 + 1
+	-- +1 perché le coordinate ANSI sono 1-indexed.
+	local target_row = screen_row + 1
+	local move_cursor_cmd = string.format("\x1b[%d;%dH", target_row, target_col)
+	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
+	write_raw_to_terminal(move_cursor_cmd .. sequence)
+end
+
 function M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
 	local image_props, err = M.get_inline_image_properties(b64_data)
 	if err then

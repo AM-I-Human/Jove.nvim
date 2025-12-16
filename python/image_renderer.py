@@ -12,6 +12,7 @@ except ImportError:
 
 CELL_ASPECT_RATIO = 1 / 2.0
 
+
 def prepare_iterm_image_from_b64(b64_data, max_width_chars=80):
     """
     Calcola le dimensioni di un'immagine da dati base64.
@@ -39,6 +40,7 @@ def prepare_iterm_image_from_b64(b64_data, max_width_chars=80):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+
 def prepare_iterm_image(image_path, max_width_chars=80):
     """
     Apre un'immagine da un file, la codifica in Base64 e calcola le dimensioni.
@@ -46,9 +48,16 @@ def prepare_iterm_image(image_path, max_width_chars=80):
     try:
         with open(image_path, "rb") as f:
             image_bytes = f.read()
-            b64_data = base64.b64encode(image_bytes).decode('utf-8')
+            b64_data = base64.b64encode(image_bytes).decode("utf-8")
             return prepare_iterm_image_from_b64(b64_data, max_width_chars)
     except FileNotFoundError:
         return json.dumps({"error": f"File non trovato: '{image_path}'"})
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+if __name__ == "__main__":
+    # Legge i dati b64 da stdin e stampa il risultato JSON
+    input_data = sys.stdin.read().strip()
+    if input_data:
+        print(prepare_iterm_image_from_b64(input_data))

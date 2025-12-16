@@ -7,7 +7,6 @@ from PIL import Image
 # Jupyter usa 'figure.dpi' e 'savefig.dpi' dalla configurazione di matplotlib.
 plt.rcParams["figure.dpi"] = 150
 
-Image.open(r"C:\Users\andre\Pictures\Andrea\Small_SALOTTO-CULTURALE_MG_6719.jpg")
 
 plt.plot(pd.DataFrame({"a": list(range(10))}))
 # pd.DataFrame({"a": list(range(10))})

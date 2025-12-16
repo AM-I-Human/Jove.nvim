@@ -33,32 +33,6 @@ local function b64_encode(data)
 	return lua_b64_encode(data)
 end
 
---- Assicura che il percorso python del plugin sia aggiunto a sys.path in Python.
-local function setup_python_path()
-	-- Questa funzione assicura che il nostro modulo `image_renderer.py` sia importabile.
-	if M._python_path_setup then
-		return
-	end
-
-	local plugin_root = vim.g.jove_plugin_root
-	if not plugin_root then
-		log.add(vim.log.levels.ERROR, "[Jove] `vim.g.jove_plugin_root` non è definito. Impossibile trovare il backend Python.")
-		return
-	end
-
-	local python_path = plugin_root .. "/python"
-
-	-- Aggiunge il percorso a sys.path di Python, se non è già presente.
-	local python_code = string.format([[
-import sys
-path = r'%s'
-if path not in sys.path:
-    sys.path.append(path)
-]], python_path)
-	vim.cmd("py3 << EOF\n" .. python_code .. "\nEOF")
-	M._python_path_setup = true
-end
-
 --- Invia dati grezzi allo stdout del terminale, bypassando la TUI di Neovim.
 local function write_raw_to_terminal(data)
 	-- Usa vim.loop (libuv) per scrivere direttamente sul TTY di stdout (fd=1).
@@ -83,15 +57,20 @@ end
 -- @param b64_data (string) Dati dell'immagine codificati in base64.
 -- @return (table | nil) Una tabella con `width`, `height`, `b64` o `nil` in caso di errore.
 function M.get_inline_image_properties(b64_data)
-	setup_python_path()
-	if not M._python_path_setup then
-		return nil, "Python path non configurato."
+	local plugin_root = vim.g.jove_plugin_root
+	if not plugin_root then
+		return nil, "vim.g.jove_plugin_root non definito."
 	end
 
-	local py_call = string.format('__import__("image_renderer").prepare_iterm_image_from_b64("%s")', b64_data)
-	local json_result = vim.fn.py3eval(py_call)
-	if not json_result then
-		return nil, "Python non ha restituito dati."
+	local python_script = plugin_root .. "/python/image_renderer.py"
+	local python_exec = vim.g.python3_host_prog or vim.g.jove_default_python or "python3"
+
+	-- Esegue lo script python passandogli i dati b64 via stdin
+	local cmd = { python_exec, python_script }
+	local json_result = vim.fn.system(cmd, b64_data)
+
+	if vim.v.shell_error ~= 0 then
+		return nil, "Errore esecuzione Python: " .. json_result
 	end
 
 	local ok, image_data = pcall(vim.json.decode, json_result)
@@ -109,15 +88,38 @@ end
 --- Disegna un'immagine nel terminale e registra le sue informazioni per la pulizia.
 function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 	local cell_info = cell_id and require("jove.state").get_cell(cell_id)
+
+	-- Trova la finestra che visualizza il buffer
+	local winid = vim.fn.bufwinid(bufnr)
+	if winid == -1 then
+		return
+	end
+
+	-- Ottiene la posizione sullo schermo della riga del buffer.
+	-- lineno è 0-indexed, screenpos vuole 1-indexed.
+	local pos = vim.fn.screenpos(winid, lineno + 1, 1)
+	if pos.row == 0 and pos.col == 0 then
+		-- Probabilmente la riga è fuori schermo
+		return
+	end
+
+	-- Le virt_lines (l'immagine) vengono disegnate SOTTO la riga.
+	-- Quindi calcoliamo la riga dello schermo successiva.
+	local screen_row = pos.row + 1
+	local screen_col = pos.col
+
 	if cell_info then
 		cell_info.image_output_info = {
-			line = lineno + 1, -- La pulizia è 1-indexed
+			bufnr = bufnr,
+			buffer_line = lineno,
 			width = image_props.width,
 			height = image_props.height,
+			-- Fallback per backward compatibility o popup
+			line = screen_row,
 		}
 	end
 
-	local move_cursor_cmd = string.format("\x1b[%d;1H", lineno + 2) -- +1 per 1-indexing, +1 per andare sotto la linea
+	local move_cursor_cmd = string.format("\x1b[%d;%dH", screen_row, screen_col)
 	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 end
@@ -162,12 +164,38 @@ function M.clear_image_area(image_info)
 		return
 	end
 
-	local r, w, h = image_info.line, image_info.width, image_info.height
+	local start_row, start_col
+
+	if image_info.bufnr and image_info.buffer_line then
+		local winid = vim.fn.bufwinid(image_info.bufnr)
+		if winid == -1 then
+			-- Se il buffer non è visibile, non c'è nulla da pulire sullo schermo
+			return
+		end
+
+		local pos = vim.fn.screenpos(winid, image_info.buffer_line + 1, 1)
+		if pos.row == 0 then
+			return
+		end
+
+		start_row = pos.row + 1
+		start_col = pos.col
+	elseif image_info.line then
+		-- Modalità assoluta (es. popup o legacy)
+		start_row = image_info.line
+		start_col = 1
+	else
+		return
+	end
+
+	local w, h = image_info.width, image_info.height
 	local space_line = string.rep(" ", w)
 	local clear_packet = ""
 
 	for i = 0, h - 1 do
-		local move_cmd = string.format("\x1b[%d;1H", r + 1 + i)
+		-- Usiamo start_col se disponibile, altrimenti 1
+		local col = start_col or 1
+		local move_cmd = string.format("\x1b[%d;%dH", start_row + i, col)
 		clear_packet = clear_packet .. move_cmd .. space_line
 	end
 

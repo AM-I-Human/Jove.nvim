@@ -59,5 +59,13 @@ def prepare_iterm_image(image_path, max_width_chars=80):
 if __name__ == "__main__":
     # Legge i dati b64 da stdin e stampa il risultato JSON
     input_data = sys.stdin.read().strip()
+
+    width = 80
+    if len(sys.argv) > 1:
+        try:
+            width = int(sys.argv[1])
+        except ValueError:
+            pass
+
     if input_data:
-        print(prepare_iterm_image_from_b64(input_data))
+        print(prepare_iterm_image_from_b64(input_data, width))

@@ -7,11 +7,10 @@ from PIL import Image
 # Jupyter usa 'figure.dpi' e 'savefig.dpi' dalla configurazione di matplotlib.
 plt.rcParams["figure.dpi"] = 150
 
-
 plt.plot(pd.DataFrame({"a": list(range(10))}))
 # pd.DataFrame({"a": list(range(10))})
-# hello = "hello"
-# print("hello") or hello
+hello = "hello"
+print("hello") or hello
 
 # %%
 

@@ -56,7 +56,7 @@ end
 --- Ottiene le proprietà dell'immagine (dimensioni, dati b64) da Python.
 -- @param b64_data (string) Dati dell'immagine codificati in base64.
 -- @return (table | nil) Una tabella con `width`, `height`, `b64` o `nil` in caso di errore.
-function M.get_inline_image_properties(b64_data)
+function M.get_inline_image_properties(b64_data, max_width)
 	local plugin_root = vim.g.jove_plugin_root
 	if not plugin_root then
 		return nil, "vim.g.jove_plugin_root non definito."
@@ -66,7 +66,12 @@ function M.get_inline_image_properties(b64_data)
 	local python_exec = vim.g.python3_host_prog or vim.g.jove_default_python or "python3"
 
 	-- Esegue lo script python passandogli i dati b64 via stdin
+	-- Passa la larghezza massima come argomento se fornita
 	local cmd = { python_exec, python_script }
+	if max_width then
+		table.insert(cmd, tostring(max_width))
+	end
+
 	local json_result = vim.fn.system(cmd, b64_data)
 
 	if vim.v.shell_error ~= 0 then
@@ -183,7 +188,7 @@ function M.clear_image_area(image_info)
 	elseif image_info.line then
 		-- Modalità assoluta (es. popup o legacy)
 		start_row = image_info.line
-		start_col = 1
+		start_col = image_info.col or 1
 	else
 		return
 	end

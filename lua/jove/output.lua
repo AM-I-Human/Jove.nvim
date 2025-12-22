@@ -64,7 +64,10 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 	local image_props, err = image_renderer.get_inline_image_properties(b64_data)
 
 	if err then
-		log.add(vim.log.levels.WARN, "Rendering inline dell'immagine fallito. Tento il fallback al popup. Errore: " .. err)
+		log.add(
+			vim.log.levels.WARN,
+			"Rendering inline dell'immagine fallito. Tento il fallback al popup. Errore: " .. err
+		)
 		return process_popup_image(cell_id, jupyter_msg, is_update)
 	end
 
@@ -230,7 +233,6 @@ local function clean_string(str)
 	-- Le barre di avanzamento possono usare \r per sovrascrivere la riga. Lo gestiamo a parte.
 	return cleaned
 end
-
 
 --- Pulisce solo i marcatori visuali (extmarks) di una cella.
 local function clear_cell_display(cell_info)
@@ -729,17 +731,27 @@ function M.show_selectable_output(bufnr, cursor_row)
 	local lines = {}
 	local render_tasks = {}
 
+	-- Calcola la larghezza desiderata per la finestra flottante (e l'immagine)
+	-- Usiamo il 70% della larghezza dello schermo, meno bordi e padding
+	local desired_width = math.floor(vim.o.columns * 0.7)
+	local image_max_width = desired_width - 4
+
 	for _, output in ipairs(cell_info.outputs) do
 		if output.type == "terminal_popup" and output.b64_data then
-			local image_props, err = image_renderer.get_inline_image_properties(output.b64_data)
+			local image_props, err = image_renderer.get_inline_image_properties(output.b64_data, image_max_width)
 			if image_props then
+				-- Aggiungiamo un padding verticale per evitare che l'immagine venga tagliata o non pulita correttamente
+				image_props.height = image_props.height + 1
 				local image_start_line = #lines
 				for _ = 1, image_props.height do
 					table.insert(lines, "") -- Aggiungi linee vuote per fare spazio
 				end
 				table.insert(render_tasks, { props = image_props, lineno = image_start_line })
 			else
-				log.add(vim.log.levels.WARN, "Impossibile renderizzare l'immagine nel popup: " .. (err or "sconosciuto"))
+				log.add(
+					vim.log.levels.WARN,
+					"Impossibile renderizzare l'immagine nel popup: " .. (err or "sconosciuto")
+				)
 				for _, line_chunks in ipairs(output.content) do
 					local line_text = ""
 					for _, chunk in ipairs(line_chunks) do
@@ -748,7 +760,8 @@ function M.show_selectable_output(bufnr, cursor_row)
 					table.insert(lines, line_text)
 				end
 			end
-		elseif output.type == "stream"
+		elseif
+			output.type == "stream"
 			or output.type == "execute_result"
 			or output.type == "display_data"
 			or output.type == "error"
@@ -775,8 +788,8 @@ function M.show_selectable_output(bufnr, cursor_row)
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "hide"
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	local width = math.floor(vim.o.columns * 0.7)
-	local height = math.min(#lines, math.floor(vim.o.lines * 0.5))
+	local width = desired_width
+	local height = math.min(#lines, math.floor(vim.o.lines * 0.8))
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "cursor",
 		width = width,
@@ -791,15 +804,17 @@ function M.show_selectable_output(bufnr, cursor_row)
 	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<cr>", { noremap = true, silent = true })
 
 	if #render_tasks > 0 then
-		local win_config = vim.api.nvim_win_get_config(win)
+		local win_pos = vim.api.nvim_win_get_position(win)
+		local win_row, win_col = win_pos[1], win_pos[2]
 		local cleanup_tasks = {}
 
 		vim.schedule(function()
 			for _, task in ipairs(render_tasks) do
-				local abs_row = win_config.row + task.lineno
-				image_renderer.draw_inline_image_at_pos(abs_row, win_config.col, task.props)
+				local abs_row = win_row + 1 + task.lineno
+				image_renderer.draw_inline_image_at_pos(abs_row, win_col, task.props)
 				table.insert(cleanup_tasks, {
 					line = abs_row + 1, -- La pulizia è 1-indexed
+					col = win_col + 2, -- win_col + 1(border) + 1(ANSI)
 					width = task.props.width,
 					height = task.props.height,
 				})

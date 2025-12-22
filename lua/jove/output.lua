@@ -61,6 +61,7 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 
 	local b64_data = content.data["image/png"]
 	local image_renderer = require("jove.image_renderer")
+	log.add(vim.log.levels.DEBUG, "[Jove] Elaborazione immagine inline...")
 	local image_props, err = image_renderer.get_inline_image_properties(b64_data)
 
 	if err then
@@ -70,8 +71,9 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 		)
 		return process_popup_image(cell_id, jupyter_msg, is_update)
 	end
+    log.add(vim.log.levels.DEBUG, "[Jove] Immagine processata con successo: " .. vim.inspect(image_props))
 
-	-- Crea linee virtuali vuote per fare spazio all'immagine
+	-- Ripristiniamo lo spazio: creiamo linee virtuali vuote
 	local virt_lines = {}
 	for _ = 1, image_props.height do
 		table.insert(virt_lines, { { "", "Normal" } }) -- Linea vuota
@@ -80,22 +82,28 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 	local output_content = virt_lines
 	local output_type = "image_inline"
 	local display_id = (content.transient and content.transient.display_id) or nil
+	local output_data = {
+		type = output_type,
+		content = output_content,
+		display_id = display_id,
+		b64_data = b64_data, -- STORE B64 DATA FOR JSO
+		image_props = image_props, -- STORE PROPERTIES FOR REFRESH
+	}
 
 	if is_update and display_id then
 		local updated = false
 		for i, output in ipairs(cell_info.outputs) do
 			if output.display_id == display_id then
-				cell_info.outputs[i].content = output_content
-				cell_info.outputs[i].type = output_type
+				cell_info.outputs[i] = output_data -- Replace entire object
 				updated = true
 				break
 			end
 		end
 		if not updated then
-			state.add_output_to_cell(cell_id, { type = output_type, content = output_content, display_id = display_id })
+			state.add_output_to_cell(cell_id, output_data)
 		end
 	else
-		state.add_output_to_cell(cell_id, { type = output_type, content = output_content, display_id = display_id })
+		state.add_output_to_cell(cell_id, output_data)
 	end
 
 	M.redraw_cell(cell_id)
@@ -104,15 +112,90 @@ local function process_inline_image(cell_id, jupyter_msg, is_update)
 	-- Usiamo vim.schedule per assicurarci che il ridisegno che crea lo spazio
 	-- avvenga prima del disegno dell'immagine, risolvendo una race condition.
 	vim.schedule(function()
+		local current_cell_info = state.get_cell(cell_id)
+		if not current_cell_info then
+			return
+		end
 		local NS_ID = state.get_namespace_id()
-		local pos = vim.api.nvim_buf_get_extmark_by_id(cell_info.bufnr, NS_ID, cell_info.end_mark, {})
+		local pos = vim.api.nvim_buf_get_extmark_by_id(current_cell_info.bufnr, NS_ID, current_cell_info.end_mark, {})
 		if pos and #pos > 0 then
 			local end_row = pos[1]
-			image_renderer.draw_and_register_inline_image(cell_info.bufnr, end_row, image_props, cell_id)
+
+			-- Calcola l'offset verticale: contiamo quante righe di virtual text (stream/error/altri)
+			-- precedono l'immagine corrente in questa cella.
+			local row_offset = 0
+			for _, out in ipairs(current_cell_info.outputs) do
+				-- Se troviamo il nostro output corrente (ovvero quello con i dati b64 appena ricevuti)
+				-- ci fermiamo. Usiamo il display_id se presente, altrimenti confrontiamo i dati.
+				if display_id and out.display_id == display_id then
+					break
+				elseif not display_id and out.b64_data == b64_data then
+					break
+				end
+
+				if out.content then
+					row_offset = row_offset + #out.content
+				end
+			end
+
+			-- Padding orizzontale richiesto dall'utente
+			local col_offset = 4
+
+			-- Redraw per sincronizzare il buffer Neovim con il terminale
+			vim.cmd("redraw")
+			-- Ritardo di sicurezza per permettere a Neovim di finire il flush al terminale
+			vim.defer_fn(function()
+				image_renderer.draw_and_register_inline_image(
+					cell_info.bufnr,
+					end_row,
+					image_props,
+					cell_id,
+					row_offset,
+					col_offset
+				)
+			end, 50)
 		end
 	end)
 
 	return true
+end
+
+--- Forza il ridisegno di tutte le immagini inline visibili nel buffer.
+function M.refresh_images(bufnr)
+	local current_buf = bufnr or vim.api.nvim_get_current_buf()
+	local image_renderer = require("jove.image_renderer")
+	local NS_ID = state.get_namespace_id()
+
+	-- Evitiamo di refreshare troppo spesso (debounce leggero implicito o controllo visibilità)
+	for cell_id, cell_info in pairs(state.get_all_cells()) do
+		if cell_info.bufnr == current_buf then
+			-- Cerchiamo output di tipo immagine
+			local row_offset = 0
+			for _, out in ipairs(cell_info.outputs) do
+				if out.type == "image_inline" and out.image_props then
+					local pos = vim.api.nvim_buf_get_extmark_by_id(current_buf, NS_ID, cell_info.end_mark, {})
+					if pos and #pos > 0 then
+						local end_row = pos[1]
+						local col_offset = 4
+						-- Redraw immediato dell'immagine nella nuova posizione
+						image_renderer.draw_and_register_inline_image(
+							current_buf,
+							end_row,
+							out.image_props,
+							cell_id,
+							row_offset,
+							col_offset
+						)
+					end
+				end
+
+				-- Incrementiamo sempre il row_offset per i prossimi output
+				if out.content then
+					row_offset = row_offset + #out.content
+				end
+			end
+		end
+	end
 end
 
 --- NUOVO: Gestisce l'output di un'immagine come placeholder riapribile.
@@ -408,18 +491,15 @@ function M.render_execute_result(cell_id, jupyter_msg)
 	process_rich_output(cell_id, jupyter_msg, "execute_result", false)
 end
 
-function M.render_input_prompt(cell_id, jupyter_msg)
-	local exec_count = jupyter_msg.content.execution_count
+--- Ridisegna solo i marcatori del prompt (In[n]: e le barre verticali) per una cella.
+function M.redraw_prompt(cell_id)
 	local cell_info = state.get_cell(cell_id)
-	if not exec_count or not cell_info then
+	if not cell_info or not cell_info.execution_count then
 		return
 	end
 
 	local NS_ID = state.get_namespace_id()
-
-	-- Pulisce tutti i marcatori visivi (output e prompt) per questa cella
-	clear_cell_display(cell_info) -- Pulisce l'output precedente
-	state.clear_cell_outputs(cell_id) -- Cancella i dati dell'output precedente
+	-- Pulisce i marcatori di prompt esistenti
 	for _, mark_id in ipairs(cell_info.prompt_marks) do
 		pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)
 	end
@@ -434,6 +514,7 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 
 	local start_row = pos_start[1]
 	local end_row = pos_end[1]
+	local exec_count = cell_info.execution_count
 
 	if start_row == end_row then -- Single-line execution
 		local prompt_text = string.format("In[%d]: ", exec_count)
@@ -445,11 +526,10 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 		table.insert(cell_info.prompt_marks, mark_id)
 	else -- Multi-line execution
 		local prompt_text = string.format("In[%d]:", exec_count)
-		local bracket_char = " ┃" -- space before for padding
+		local bracket_char = " ┃"
 		local prompt_width = vim.fn.strwidth(prompt_text)
 		local padding = string.rep(" ", prompt_width)
 
-		-- First line: Prompt + Bracket
 		local first_line_mark = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, start_row, 0, {
 			virt_text = { { prompt_text, "Question" }, { bracket_char, "Question" } },
 			virt_text_pos = "inline",
@@ -457,7 +537,6 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 		})
 		table.insert(cell_info.prompt_marks, first_line_mark)
 
-		-- Subsequent lines: Padding + Bracket
 		for i = start_row + 1, end_row do
 			local line_mark = vim.api.nvim_buf_set_extmark(cell_info.bufnr, NS_ID, i, 0, {
 				virt_text = { { padding, "Question" }, { bracket_char, "Question" } },
@@ -467,6 +546,21 @@ function M.render_input_prompt(cell_id, jupyter_msg)
 			table.insert(cell_info.prompt_marks, line_mark)
 		end
 	end
+end
+
+function M.render_input_prompt(cell_id, jupyter_msg)
+	local exec_count = jupyter_msg.content.execution_count
+	local cell_info = state.get_cell(cell_id)
+	if not exec_count or not cell_info then
+		return
+	end
+
+	cell_info.execution_count = exec_count
+
+	-- Pulisce l'output precedente quando inizia una nuova esecuzione
+	state.clear_cell_outputs(cell_id)
+	M.redraw_cell(cell_id)
+	M.redraw_prompt(cell_id)
 end
 
 function M.render_error(cell_id, jupyter_msg)
@@ -737,8 +831,9 @@ function M.show_selectable_output(bufnr, cursor_row)
 	local image_max_width = desired_width - 4
 
 	for _, output in ipairs(cell_info.outputs) do
-		if output.type == "terminal_popup" and output.b64_data then
-			local image_props, err = image_renderer.get_inline_image_properties(output.b64_data, image_max_width)
+		if (output.type == "terminal_popup" or output.type == "image_inline") and output.b64_data then
+			-- Pass 0 for max_pixels to disable resizing (use full resolution) for popup
+			local image_props, err = image_renderer.get_inline_image_properties(output.b64_data, image_max_width, 0)
 			if image_props then
 				-- Aggiungiamo un padding verticale per evitare che l'immagine venga tagliata o non pulita correttamente
 				image_props.height = image_props.height + 1
@@ -775,7 +870,8 @@ function M.show_selectable_output(bufnr, cursor_row)
 				table.insert(lines, line_text)
 			end
 		elseif output.type == "image_inline" then
-			table.insert(lines, "[Immagine: inline]")
+			-- Fallback se b64_data non è presente (vecchi output?)
+			table.insert(lines, "[Immagine: inline (dati mancanti)]")
 		end
 	end
 

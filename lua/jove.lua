@@ -30,8 +30,9 @@ local python_setup_code = table.concat({
 }, "\n")
 
 local defaults = {
-	image_renderer = "terminal_popup", -- Renderer per le immagini: "popup", "iip" (inline), "terminal_popup" (re-openable)
+	image_renderer = "iip", -- Renderer per le immagini: "popup", "iip" (inline), "terminal_popup" (re-openable)
 	image_width = 80,
+	image_max_size = 400, -- Maximum size in pixels for height/width (preserves aspect ratio)
 	kernels = {
 		python = {
 			cmd = "{executable} -m ipykernel_launcher -f {connection_file}",
@@ -64,7 +65,11 @@ function M.setup(user_opts)
 	local log = require("jove.log")
 	log.add(vim.log.levels.INFO, "Avvio configurazione Jove...")
 
-	config = deep_merge(defaults, user_opts)
+	-- Aggiorna la tabella config esistente per non rompere i riferimenti in altri moduli
+	local new_config = deep_merge(defaults, user_opts)
+	for k, v in pairs(new_config) do
+		config[k] = v
+	end
 
 	log.add(vim.log.levels.DEBUG, "Configurazione utente applicata: " .. vim.inspect(user_opts))
 	log.add(vim.log.levels.DEBUG, "Configurazione finale: " .. vim.inspect(config))
@@ -74,6 +79,41 @@ function M.setup(user_opts)
 	-- Carica le regole di highlighting
 	require("jove.highlight")
 	require("jove.ansi").setup_highlights()
+
+	-- Autocmd per mantenere l'allineamento dei prompt e delle immagini durante l'editing e lo scrolling
+	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "WinScrolled", "VimResized", "WinResized" }, {
+		group = vim.api.nvim_create_augroup("JoveSync", { clear = true }),
+		callback = function(ev)
+			local state = require("jove.state")
+			local output = require("jove.output")
+			local bufnr = ev.buf
+
+			-- 1. Allineamento Prompt (solo per modifiche testo nella cella corrente)
+			if ev.event == "TextChanged" or ev.event == "TextChangedI" then
+				local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+				for cell_id, cell_info in pairs(state.get_all_cells()) do
+					if cell_info.bufnr == bufnr then
+						local pos_start = vim.api.nvim_buf_get_extmark_by_id(bufnr, state.get_namespace_id(), cell_info.start_mark, {})
+						local pos_end = vim.api.nvim_buf_get_extmark_by_id(bufnr, state.get_namespace_id(), cell_info.end_mark, {})
+						if pos_start and #pos_start > 0 and pos_end and #pos_end > 0 then
+							if cursor_row >= pos_start[1] and cursor_row <= pos_end[1] then
+								output.redraw_prompt(cell_id)
+							end
+						end
+					end
+				end
+			end
+
+			-- 2. Refresh Immagini (per ogni evento che sposta o altera il layout)
+			-- Usiamo un piccolo delay per evitare di inondare il TTY durante lo scroll veloce
+			if _G._jove_refresh_timer then
+				vim.fn.timer_stop(_G._jove_refresh_timer)
+			end
+			_G._jove_refresh_timer = vim.fn.timer_start(20, function()
+				output.refresh_images(bufnr)
+			end)
+		end,
+	})
 end
 
 function M.get_config()

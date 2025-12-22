@@ -35,32 +35,35 @@ end
 
 --- Invia dati grezzi allo stdout del terminale, bypassando la TUI di Neovim.
 local function write_raw_to_terminal(data)
-	-- Usa vim.loop (libuv) per scrivere direttamente sul TTY di stdout (fd=1).
-	-- Questo bypassa l'interprete RPC di Neovim, che causa errori come
-	-- "Can't send raw data to rpc channel".
-	local stdout = vim.loop.new_tty(1, false)
-	if not stdout then
-		log.add(vim.log.levels.ERROR, "[Jove Image] Impossibile aprire TTY per stdout.")
+	-- DEC Save/Restore Cursor are usually more reliable for iTerm2 direct writes
+	local final_data = "\x1b7" .. data .. "\x1b8"
+
+	-- Scrittura diretta su /dev/tty per bypassare il buffer di Neovim
+	local tty = io.open("/dev/tty", "wb")
+	if tty then
+		tty:write(final_data)
+		tty:flush()
+		tty:close()
 		return
 	end
 
-	stdout:write(data, function(err)
-		if err then
-			log.add(vim.log.levels.ERROR, "[Jove Image] Errore di scrittura su stdout: " .. err)
-		end
-		-- È importante chiudere l'handle dopo la scrittura asincrona.
-		stdout:close()
-	end)
+	-- Fallback estremo tramite canale nvim (meno diretto ma bufferizzato)
+	vim.api.nvim_chan_send(2, final_data)
 end
 
 --- Ottiene le proprietà dell'immagine (dimensioni, dati b64) da Python.
 -- @param b64_data (string) Dati dell'immagine codificati in base64.
+-- @param max_width (number|nil) Larghezza massima in caratteri.
+-- @param max_pixels (number|nil) Dimensione massima in pixel (override config).
 -- @return (table | nil) Una tabella con `width`, `height`, `b64` o `nil` in caso di errore.
-function M.get_inline_image_properties(b64_data, max_width)
+function M.get_inline_image_properties(b64_data, max_width, max_pixels)
 	local plugin_root = vim.g.jove_plugin_root
 	if not plugin_root then
 		return nil, "vim.g.jove_plugin_root non definito."
 	end
+
+	-- Sanitizza i dati b64 rimuovendo eventuali newline che potrebbero rompere il passaggio argomenti
+	b64_data = b64_data:gsub("[\n\r]", "")
 
 	local python_script = plugin_root .. "/python/image_renderer.py"
 	local python_exec = vim.g.python3_host_prog or vim.g.jove_default_python or "python3"
@@ -70,6 +73,19 @@ function M.get_inline_image_properties(b64_data, max_width)
 	local cmd = { python_exec, python_script }
 	if max_width then
 		table.insert(cmd, tostring(max_width))
+	else
+		table.insert(cmd, "80") -- Default width if not provided
+	end
+
+	-- Gestione max_pixels: priorità all'argomento, poi config
+	if max_pixels then
+		table.insert(cmd, tostring(max_pixels))
+	else
+		local config = require("jove").get_config()
+		local config_max = config.image_max_size
+		if config_max then
+			table.insert(cmd, tostring(config_max))
+		end
 	end
 
 	local json_result = vim.fn.system(cmd, b64_data)
@@ -91,8 +107,10 @@ function M.get_inline_image_properties(b64_data, max_width)
 end
 
 --- Disegna un'immagine nel terminale e registra le sue informazioni per la pulizia.
-function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
+function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id, row_offset, col_offset)
 	local cell_info = cell_id and require("jove.state").get_cell(cell_id)
+	row_offset = row_offset or 0
+	col_offset = col_offset or 0
 
 	-- Trova la finestra che visualizza il buffer
 	local winid = vim.fn.bufwinid(bufnr)
@@ -100,18 +118,22 @@ function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 		return
 	end
 
-	-- Ottiene la posizione sullo schermo della riga del buffer.
-	-- lineno è 0-indexed, screenpos vuole 1-indexed.
-	local pos = vim.fn.screenpos(winid, lineno + 1, 1)
-	if pos.row == 0 and pos.col == 0 then
-		-- Probabilmente la riga è fuori schermo
+	-- Verifica se la finestra è valida per screenpos
+	if not vim.api.nvim_win_is_valid(winid) then
 		return
 	end
 
-	-- Le virt_lines (l'immagine) vengono disegnate SOTTO la riga.
-	-- Quindi calcoliamo la riga dello schermo successiva.
-	local screen_row = pos.row + 1
-	local screen_col = pos.col
+	-- Ottiene la posizione sullo schermo della riga del buffer.
+	local pos = vim.fn.screenpos(winid, lineno + 1, 1)
+	if pos.row == 0 and pos.col == 0 then
+		return
+	end
+
+	-- Applichiamo gli offset alla posizione calcolata.
+	-- +1 perché screenpos restituisce la riga del testo nel buffer,
+	-- e le immagini vengono caricate nello spazio delle virtual lines sotto.
+	local screen_row = pos.row + 1 + row_offset
+	local screen_col = pos.col + col_offset
 
 	if cell_info then
 		cell_info.image_output_info = {
@@ -119,13 +141,13 @@ function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id)
 			buffer_line = lineno,
 			width = image_props.width,
 			height = image_props.height,
-			-- Fallback per backward compatibility o popup
 			line = screen_row,
+			col = screen_col,
 		}
 	end
 
 	local move_cursor_cmd = string.format("\x1b[%d;%dH", screen_row, screen_col)
-	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
+	local sequence = string.format("\x1b]1337;File=inline=1:%s\a", image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 end
 
@@ -136,7 +158,7 @@ function M.draw_inline_image_at_pos(screen_row, screen_col, image_props)
 	-- +1 perché le coordinate ANSI sono 1-indexed.
 	local target_row = screen_row + 1
 	local move_cursor_cmd = string.format("\x1b[%d;%dH", target_row, target_col)
-	local sequence = string.format("\x1b]1337;File=inline=1;doNotMoveCursor=1:%s\a", image_props.b64)
+	local sequence = string.format("\x1b]1337;File=inline=1;size=%d;doNotMoveCursor=1:%s\a", #image_props.b64, image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 end
 

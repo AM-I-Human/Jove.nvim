@@ -45,24 +45,39 @@ function M.start(kernel_name, on_ready_callback)
 
 	state.add_kernel(kernel_name, kernel_config)
 
-	-- Determina l'eseguibile per il kernel, dando priorità ai venv.
-	local venv_path
-	if vim.env.VIRTUAL_ENV then
-		if vim.fn.has("win32") == 1 then
-			venv_path = vim.env.VIRTUAL_ENV .. "\\Scripts\\python.exe"
-		else
-			venv_path = vim.env.VIRTUAL_ENV .. "/bin/python"
+	local function get_best_python()
+		-- 1. Priorità: Esplicito in configurazione kernel
+		if kernel_config.executable then return kernel_config.executable end
+
+		-- 2. Buffer-local (es. impostato da venv-selector)
+		if vim.b.python_exec then return vim.b.python_exec end
+
+		-- 3. Ambiente in working directory (.venv locale)
+		local local_venv = vim.fn.getcwd() .. "/.venv"
+		if vim.fn.isdirectory(local_venv) == 1 then
+			local venv_python = vim.fn.has("win32") == 1 and (local_venv .. "/Scripts/python.exe") or (local_venv .. "/bin/python")
+			if vim.fn.executable(venv_python) == 1 then
+				log.add(vim.log.levels.INFO, "[Jove] Trovato ambiente locale: " .. local_venv)
+				return venv_python
+			end
 		end
-		if vim.fn.executable(venv_path) ~= 1 then
-			venv_path = nil -- L'eseguibile non esiste o non è eseguibile
+
+		-- 4. VIRTUAL_ENV standard (attivato nella shell)
+		if vim.env.VIRTUAL_ENV then
+			local venv_python = vim.fn.has("win32") == 1 and (vim.env.VIRTUAL_ENV .. "/Scripts/python.exe") or (vim.env.VIRTUAL_ENV .. "/bin/python")
+			if vim.fn.executable(venv_python) == 1 then
+				log.add(vim.log.levels.INFO, "[Jove] Uso VIRTUAL_ENV: " .. vim.env.VIRTUAL_ENV)
+				return venv_python
+			end
 		end
+
+		-- 5. Fallback globale o default
+		return vim.g.jove_default_python or "python"
 	end
 
-	local kernel_exec = kernel_config.executable -- 1. Configurazione utente esplicita
-		or vim.b.python_exec -- 2. Integrazione con venv-selector
-		or venv_path -- 3. Variabile d'ambiente VIRTUAL_ENV
-		or vim.g.jove_default_python -- 4. Fallback globale di Jove
-		or "python" -- 5. Python di sistema
+	local kernel_exec = get_best_python()
+	log.add(vim.log.levels.INFO, string.format("[Jove] Ambiente selezionato per '%s': %s", kernel_name, kernel_exec))
+
 
 	local connection_file = vim.fn.tempname() .. ".json"
 

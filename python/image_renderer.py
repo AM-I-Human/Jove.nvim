@@ -10,7 +10,7 @@ try:
 except ImportError:
     raise
 
-CELL_ASPECT_RATIO = 1 / 1.6
+CELL_ASPECT_RATIO = 1 / 3
 
 
 def prepare_iterm_image_from_b64(b64_data, max_width_chars=80, max_pixels=None):

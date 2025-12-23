@@ -25,6 +25,9 @@ end
 
 --- Tenta di usare la funzione nativa di Neovim, altrimenti usa il fallback.
 local function b64_encode(data)
+	if vim.base64 and vim.base64.encode then
+		return vim.base64.encode(data)
+	end
 	local ok, encoded = pcall(vim.fn.base64encode, data)
 	if ok and encoded then
 		return encoded
@@ -146,8 +149,15 @@ function M.draw_and_register_inline_image(bufnr, lineno, image_props, cell_id, r
 		}
 	end
 
+	local name_part = ""
+	if cell_id then
+		-- iTerm2 richiede che il nome sia codificato in base64
+		local b64_name = b64_encode(tostring(cell_id))
+		name_part = string.format("name=%s;", b64_name)
+	end
+
 	local move_cursor_cmd = string.format("\x1b[%d;%dH", screen_row, screen_col)
-	local sequence = string.format("\x1b]1337;File=inline=1:%s\a", image_props.b64)
+	local sequence = string.format("\x1b]1337;File=%sinline=1:%s\a", name_part, image_props.b64)
 	write_raw_to_terminal(move_cursor_cmd .. sequence)
 end
 
@@ -185,48 +195,52 @@ function M.render_image_inline(bufnr, lineno, image_path, cell_id)
 	M.render_image_from_b64(bufnr, lineno, b64_data, cell_id)
 end
 
+local TRANSPARENT_PIXEL_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
 --- Pulisce l'area dove era stata disegnata un'immagine.
-function M.clear_image_area(image_info)
+-- Se cell_id è presente, usa il rimpiazzo con pixel trasparente (più sicuro).
+-- Altrimenti usa il fallback degli spazi (più rischioso per il codice).
+function M.clear_image_area(image_info, cell_id)
 	if not image_info then
 		return
 	end
 
-	local start_row, start_col
+	local start_row, start_col = image_info.line, image_info.col
 
-	if image_info.bufnr and image_info.buffer_line then
-		local winid = vim.fn.bufwinid(image_info.bufnr)
-		if winid == -1 then
-			-- Se il buffer non è visibile, non c'è nulla da pulire sullo schermo
+	-- Fallback se non abbiamo coordinate assolute
+	if not start_row or not start_col then
+		if image_info.bufnr and image_info.buffer_line then
+			local winid = vim.fn.bufwinid(image_info.bufnr)
+			if winid == -1 then return end
+			local pos = vim.fn.screenpos(winid, image_info.buffer_line + 1, 1)
+			if pos.row == 0 then return end
+			start_row = pos.row + 1
+			start_col = pos.col
+		else
 			return
 		end
+	end
 
-		local pos = vim.fn.screenpos(winid, image_info.buffer_line + 1, 1)
-		if pos.row == 0 then
-			return
-		end
-
-		start_row = pos.row + 1
-		start_col = pos.col
-	elseif image_info.line then
-		-- Modalità assoluta (es. popup o legacy)
-		start_row = image_info.line
-		start_col = image_info.col or 1
+	if cell_id then
+		-- METODO SICURO: Rimpiazza l'immagine nominata con un pixel trasparente.
+		-- Questo evita di scrivere spazi sopra il codice di Neovim.
+		local b64_name = b64_encode(tostring(cell_id))
+		local name_part = string.format("name=%s;", b64_name)
+		local move_cmd = string.format("\x1b[%d;%dH", start_row, start_col)
+		local sequence = string.format("\x1b]1337;File=%sinline=1;width=1px;height=1px:%s\a", name_part, TRANSPARENT_PIXEL_B64)
+		write_raw_to_terminal(move_cmd .. sequence)
 	else
-		return
+		-- METODO CLASSICO: Sovrascrittura con spazi.
+		-- ATTENZIONE: Può coprire il codice se le coordinate sono imprecise.
+		local w, h = image_info.width, image_info.height
+		local space_line = string.rep(" ", w)
+		local clear_packet = "\x1b[0m"
+		for i = 0, h - 1 do
+			local move_cmd = string.format("\x1b[%d;%dH", start_row + i, start_col)
+			clear_packet = clear_packet .. move_cmd .. space_line
+		end
+		write_raw_to_terminal(clear_packet)
 	end
-
-	local w, h = image_info.width, image_info.height
-	local space_line = string.rep(" ", w)
-	local clear_packet = ""
-
-	for i = 0, h - 1 do
-		-- Usiamo start_col se disponibile, altrimenti 1
-		local col = start_col or 1
-		local move_cmd = string.format("\x1b[%d;%dH", start_row + i, col)
-		clear_packet = clear_packet .. move_cmd .. space_line
-	end
-
-	write_raw_to_terminal(clear_packet)
 end
 
 --- NUOVO: Renderizza un'immagine da dati B64 in una finestra popup Tcl/Tk.

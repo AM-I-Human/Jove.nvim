@@ -154,15 +154,22 @@ function M.start_python_client(kernel_name, connection_file_path, ipykernel_job_
 		state.set_kernel_property(kernel_name, "on_ready_callback", on_ready_callback)
 	end
 
+	local stdout_buffer = ""
 	local py_job_id = vim.fn.jobstart(py_client_cmd, {
 		stdin = "pipe",
 		on_stdout = function(_, data, _)
 			if data then
-				for _, line in ipairs(data) do
-					if line ~= "" then
-						vim.schedule(function()
-							M.handle_py_client_message(kernel_name, line)
-						end)
+				for i, chunk in ipairs(data) do
+					if i == 1 then
+						stdout_buffer = stdout_buffer .. chunk
+					else
+						local complete_line = stdout_buffer
+						stdout_buffer = chunk
+						if complete_line ~= "" then
+							vim.schedule(function()
+								M.handle_py_client_message(kernel_name, complete_line)
+							end)
+						end
 					end
 				end
 			end

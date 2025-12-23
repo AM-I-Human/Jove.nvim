@@ -127,13 +127,13 @@ class KernelClient:
         new_h = int(new_w * aspect_ratio)
         if new_h == 0:
             return None
-        
+
         resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
+
         d = io.BytesIO()
         writer = SixelWriter(d)
         writer.draw(resized_img)
-        return d.getvalue().decode('ascii')
+        return d.getvalue().decode("ascii")
 
     def handle_image_output(self, data: Dict[str, str]) -> bool:
         target_width = self.image_width
@@ -150,8 +150,8 @@ class KernelClient:
         try:
             image_data = base64.b64decode(b64_data)
             img = Image.open(io.BytesIO(image_data)).convert("RGB")
-            
-            if self.image_renderer == 'sixel':
+
+            if self.image_renderer == "sixel":
                 output_str = self._render_to_sixel(img, target_width)
                 if output_str:
                     self.send_to_lua({"type": "image_sixel", "payload": output_str})
@@ -159,14 +159,15 @@ class KernelClient:
 
             # Fallback to iTerm2 if Sixel fails or is not the chosen renderer.
             # For iTerm2, we just send the original base64 data.
-            self.send_to_lua({"type": "image_iip", "payload": b64_data})
+            # Rimuoviamo newline e ritorni a capo per evitare di rompere il JSON-per-linea
+            sanitized_b64 = b64_data.replace("\n", "").replace("\r", "")
+            self.send_to_lua({"type": "image_iip", "payload": sanitized_b64})
             return True
 
         except Exception as e:
             log_message(f"Error processing image with Pillow: {e}")
-        
-        return False
 
+        return False
 
     def send_execute_request(self, jupyter_msg_payload: Dict[str, Any]) -> None:
         log_message("Preparing to send execute_request.")

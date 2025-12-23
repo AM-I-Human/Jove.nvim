@@ -138,8 +138,13 @@ end
 
 --- Pulisce i dati di output di una cella.
 function M.clear_cell_outputs(cell_id)
-	if state.cells[cell_id] then
-		state.cells[cell_id].outputs = {}
+	local cell_info = state.cells[cell_id]
+	if cell_info then
+		if cell_info.image_output_info then
+			require("jove.image_renderer").clear_image_area(cell_info.image_output_info, cell_id)
+			cell_info.image_output_info = nil
+		end
+		cell_info.outputs = {}
 	end
 end
 
@@ -147,6 +152,9 @@ end
 function M.remove_cell(cell_id)
 	local cell_info = state.cells[cell_id]
 	if cell_info then
+		if cell_info.image_output_info then
+			require("jove.image_renderer").clear_image_area(cell_info.image_output_info, cell_id)
+		end
 		-- Rimuove tutti i marcatori associati
 		for _, mark_id in ipairs(cell_info.output_marks) do
 			pcall(vim.api.nvim_buf_del_extmark, cell_info.bufnr, NS_ID, mark_id)

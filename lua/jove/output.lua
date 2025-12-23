@@ -177,15 +177,32 @@ function M.refresh_images(bufnr)
 					if pos and #pos > 0 then
 						local end_row = pos[1]
 						local col_offset = 4
-						-- Redraw immediato dell'immagine nella nuova posizione
-						image_renderer.draw_and_register_inline_image(
-							current_buf,
-							end_row,
-							out.image_props,
-							cell_id,
-							row_offset,
-							col_offset
-						)
+						
+						-- Recuperiamo la finestra per calcolare la posizione attuale
+						local winid = vim.fn.bufwinid(current_buf)
+						if winid ~= -1 then
+							local s_pos = vim.fn.screenpos(winid, end_row + 1, 1)
+							if s_pos.row > 0 then
+								local target_row = s_pos.row + 1 + row_offset
+								local target_col = s_pos.col + col_offset
+
+								-- Ridisegniamo solo se la posizione è effettivamente cambiata sullo schermo.
+								-- Questo evita artefatti e flood di comandi TTY durante l'editing.
+								if not cell_info.image_output_info or 
+								   cell_info.image_output_info.line ~= target_row or 
+								   cell_info.image_output_info.col ~= target_col then
+									
+									image_renderer.draw_and_register_inline_image(
+										current_buf,
+										end_row,
+										out.image_props,
+										cell_id,
+										row_offset,
+										col_offset
+									)
+								end
+							end
+						end
 					end
 				end
 
